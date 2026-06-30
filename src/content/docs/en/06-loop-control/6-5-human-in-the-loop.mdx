@@ -1,0 +1,164 @@
+---
+title: "Human-in-the-Loop and the Autonomy Slider"
+description: Understanding the spectrum of agent autonomy — designing approval gates, using LangGraph interrupt(), and establishing the idempotency guarantee that makes human intervention safe.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Understand the agent autonomy spectrum and choose the appropriate level for a given situation"
+  - "Implement the four elements of an approval gate (pause, notify, review, resume) in a loop"
+  - "Explain the idempotency precondition that makes Human-in-the-Loop effective"
+prerequisites:
+  - "6-1-stopping-conditions"
+estimated_minutes: 32
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "LangGraph docs"
+    url: "https://langchain-ai.github.io/langgraph/"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+---
+
+## Is Full Automation Always the Right Answer?
+
+When designing an agentic loop, "how much should be delegated to the agent" is simultaneously a technical question and a risk management question. Full autonomy maximizes speed and scalability — but if the agent performs an irreversible action incorrectly (deleting a production database, mass-overwriting files, calling an external API at the wrong moment), the damage can be severe. Conversely, requiring human approval at every single step eliminates the benefits of automation.
+
+**Human-in-the-Loop (HITL)** means designing the intervention point somewhere between these two extremes. Anthropic visualizes this as an **autonomy slider**. Where you set the slider depends on the risk of the task, whether its effects are reversible, and how much you trust the agent's current capability level.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                       Autonomy Slider                         │
+│                                                              │
+│  Full Manual ◀──────────────────────────────▶ Full Auto     │
+│                                                              │
+│  ① Per-step approval   Human confirms every tool call        │
+│                                                              │
+│  ② Risky-action gate   Low-risk actions auto; approve only   │
+│                        irreversible actions                  │
+│                                                              │
+│  ③ Post-completion     Loop runs automatically; human        │
+│     review            reviews only the final result          │
+│                                                              │
+│  ④ Full automation     No review (YOLO mode)                 │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## The Four Elements of an Approval Gate
+
+When integrating HITL into a loop, an **approval gate** consists of four elements.
+
+**First, Pause.** Halt the loop under specific conditions — before every tool execution, or when a particular dangerous tool (file deletion, external API call) is requested.
+
+**Second, Notify.** Inform the human of the current state and the action awaiting approval. The notification must include sufficient context. Not "Shall I proceed?" but something specific: "I am about to delete the password validation logic at line 231 of auth.py. This change affects production code, not just the test environment. Do you approve?" Specificity is what makes approval meaningful.
+
+**Third, Review.** The human examines the planned action and chooses to accept, modify, or reject it.
+
+**Fourth, Resume.** The human's decision (accept or modified instructions) is added to the context and the loop resumes.
+
+## LangGraph interrupt()
+
+LangGraph implements this pattern with the `interrupt()` primitive. Calling `interrupt()` inside a graph node pauses execution and waits for human input. When the human provides a value, that value is returned to the node and execution resumes.
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+# LangGraph interrupt() pattern (conceptual explanation)
+
+from langgraph.types import interrupt
+
+def dangerous_action_node(state: dict) -> dict:
+    """
+    Node that requests human approval before an irreversible action.
+    """
+    planned_action = state["planned_action"]
+
+    # Dangerous action detected → pause loop and wait for human input
+    if is_irreversible(planned_action):
+        # interrupt(): suspend execution, wait for human input
+        human_decision = interrupt({
+            "question": "Execute the following action?",
+            "action": planned_action,
+            "risk": "irreversible",
+            "context": state.get("context_summary", "")
+        })
+
+        if human_decision == "approve":
+            result = execute(planned_action)
+        elif human_decision == "reject":
+            result = {"status": "cancelled_by_human"}
+        else:
+            # Human provided a modified action
+            result = execute(human_decision["modified_action"])
+    else:
+        # Safe action: execute automatically
+        result = execute(planned_action)
+
+    return {**state, "last_result": result}
+```
+
+When LangGraph's **checkpointer** is combined with `interrupt()`, loop state is persisted to a database while waiting — indefinitely if needed. Even if the human responds hours later, the loop state is preserved and ready to resume.
+
+## Idempotency: The Precondition for HITL
+
+For HITL to work safely in practice, **idempotency** must be guaranteed. When a human cancels an approval or the loop is restarted, already-executed actions must not be executed again.
+
+Key patterns for ensuring idempotency:
+
+| Pattern | Description | Example |
+|---------|-------------|---------|
+| Idempotency key | Assign a unique ID to each action; block duplicate execution | Use UUID for DB INSERT |
+| Check-then-execute | Verify current state before acting; skip if already applied | Check if file exists before creating |
+| Transaction log | Record completed actions; skip list on restart | `completed_actions.json` |
+| Read-only pre-check | Read current state before writing | Read current file before modifying |
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+import hashlib
+
+def idempotent_execute(action: dict, completed_log: set) -> dict:
+    """
+    Idempotency guarantee: do not re-execute actions already completed.
+    """
+    # Generate a unique identifier for this action
+    action_id = hashlib.sha256(str(action).encode()).hexdigest()[:16]
+
+    if action_id in completed_log:
+        return {"status": "already_done", "action_id": action_id}
+
+    result = execute(action)
+    completed_log.add(action_id)
+    persist_log(completed_log)  # Persist to survive restarts
+
+    return {"status": "done", "result": result, "action_id": action_id}
+```
+
+## Autonomy Level Selection Guide
+
+Which autonomy level is right for a given task? Anthropic recommends the following criteria based on task characteristics.
+
+| Task Characteristics | Recommended Autonomy Level |
+|--------------------|--------------------------|
+| Contains irreversible actions | Approval gate immediately before those actions |
+| Repetitive, well-validated pattern | Post-completion review or full automation |
+| Novel or uncertain task | Approval at each major decision point |
+| Destructive actions (delete, deploy) | Always require human approval |
+| Read-only analysis | Full automation acceptable |
+
+**Full automation (YOLO mode)** is only appropriate for well-understood tasks, tasks whose effects are entirely reversible, and agents whose behavior has been sufficiently validated. Simon Willison explicitly calls out "YOLO mode" as a dangerous setting where the agent runs with no constraints whatsoever.
+
+## Common Mistakes When Adopting HITL
+
+**Requesting approval for too many things.** When every minor action requires approval, users develop the habit of always clicking "approve" — and then rubber-stamp the approval that actually matters. Approval gates must be selective, triggered by risk level, to remain effective.
+
+**Notifications without context.** A bare "Shall I proceed?" makes it impossible for the human to make a good decision. The current state, the scope of the action's impact, and the reason the action is necessary must be provided alongside the approval request.
+
+**No idempotency on resume.** If restarting the loop causes already-completed actions to execute again, HITL can create more damage than it prevents.
+
+Human-in-the-Loop is not about constraining the agent's autonomy. It is about giving the agent the opportunity to **earn trust**. Start by requiring approval for all high-risk actions. As the agent's reliability is validated over time, gradually slide the autonomy slider to the right. That gradual progression is the sound deployment strategy.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="06-loop-control" lang="en" client:load />

@@ -1,0 +1,140 @@
+---
+title: "DSPy: Optimizer in the Loop"
+description: Understanding how DSPy abstracts prompts as parameterized modules and uses a compiler to optimize them from data.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Explain DSPy's Signature, Module, and Compiler concepts and distinguish them from conventional prompt engineering"
+  - "Describe how the BootstrapFewShot and MIPROv2 optimizers exploit loops"
+  - "Decide when DSPy is a good fit and when it is not"
+prerequisites:
+  - "11-1-loop-as-mdp"
+estimated_minutes: 30
+references:
+  - title: "Khattab et al. — DSPy: Compiling Declarative Language Model Calls (arXiv:2310.03714)"
+    url: "https://arxiv.org/abs/2310.03714"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## The Limits of Manual Prompt Engineering
+
+One of the most time-consuming parts of loop design is **writing prompts**. "Think step by step", "output as JSON", "include three examples" — every one of these instructions is drafted by hand, tested by hand, and revised by hand. Switch models and you start over. Change the task even slightly and you rework dozens of lines. When a pipeline has multiple stages, the combinatorial surface to manage explodes.
+
+**DSPy (Declarative Self-improving Python)** tackles this problem head-on. The core idea is simple: **parameterize prompts like code, and let a compiler optimize them automatically using data and a metric.**
+
+## DSPy's Three Abstractions
+
+### 1. Signature — Declaring *What* to Do
+
+A signature is a type annotation of input and output fields. It says *what* the module should accomplish, but says nothing about *how*.
+
+This is conceptual pseudocode for illustration; the actual API may differ.
+
+```python
+import dspy
+
+class QuestionAnswering(dspy.Signature):
+    """Answer a question given a context."""
+    context: str = dspy.InputField()
+    question: str = dspy.InputField()
+    answer: str = dspy.OutputField()
+
+# A signature that requires chain-of-thought reasoning
+class MathSolver(dspy.Signature):
+    """Solve a math problem step by step and give the final answer."""
+    problem: str = dspy.InputField()
+    reasoning: str = dspy.OutputField(desc="Step-by-step solution")
+    answer: float = dspy.OutputField()
+```
+
+The author of a signature only declares "from this input, produce that output." The intermediate CoT prompt, few-shot examples, and instructions are all decisions left to the compiler.
+
+### 2. Module — Reusable Reasoning Blocks
+
+`dspy.Predict`, `dspy.ChainOfThought`, and `dspy.ReAct` are the built-in modules. A module takes a signature and turns it into a callable execution unit.
+
+This is conceptual pseudocode for illustration; the actual API may differ.
+
+```python
+# Simple prediction
+predict = dspy.Predict(QuestionAnswering)
+
+# With chain-of-thought reasoning
+cot = dspy.ChainOfThought(MathSolver)
+
+# Composing multiple modules into a pipeline
+class RAGPipeline(dspy.Module):
+    def __init__(self):
+        self.retrieve = dspy.Retrieve(k=3)
+        self.answer = dspy.ChainOfThought(QuestionAnswering)
+
+    def forward(self, question):
+        context = self.retrieve(question).passages
+        return self.answer(context="\n".join(context), question=question)
+```
+
+### 3. Compiler — Learning *How* from Data
+
+The compiler accepts training examples (input-output pairs) and a metric (a function that judges success), then optimizes the internal prompts of each module.
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│                    DSPy Compilation Loop                        │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  Training examples ──▶ ┌──────────────┐                       │
+│  (Q, A pairs)          │  Optimizer   │ ◀── Metric fn (judge) │
+│                        │              │                       │
+│                        │ ① Generate candidate prompts         │
+│                        │ ② Run full pipeline                  │
+│                        │ ③ Evaluate quality with metric       │
+│                        │ ④ Keep / store better prompts        │
+│                        └──────┬───────┘                       │
+│                               │                               │
+│                               ▼                               │
+│               Module with optimized prompts embedded          │
+│               (ready for deployment)                          │
+└────────────────────────────────────────────────────────────────┘
+```
+
+## Two Key Optimizers
+
+**BootstrapFewShot**: The simplest optimizer. It runs the pipeline on training examples, collects trajectories that led to success, and automatically inserts them as few-shot examples. The advantage is twofold: human curation of examples is eliminated, and only reasoning paths that actually worked are used.
+
+**MIPROv2**: A more sophisticated optimizer. It jointly optimizes instructions and examples using Bayesian optimization to search candidate prompts efficiently. It requires more LLM calls but tends to deliver larger gains on complex, multi-stage pipelines.
+
+This is conceptual pseudocode for illustration; the actual API may differ.
+
+```python
+# Example compilation
+teleprompter = dspy.MIPROv2(metric=exact_match, auto="medium")
+optimized_pipeline = teleprompter.compile(
+    RAGPipeline(),
+    trainset=train_examples,
+)
+# optimized_pipeline now contains the best instructions
+# and examples the compiler found
+```
+
+## What DSPy's Loop Means: Optimizer in the Loop
+
+DSPy compilation is itself an **outer optimization loop**. It runs the pipeline on training examples, evaluates with the metric, adjusts prompts, and runs again — all without human intervention.
+
+| Comparison | Traditional Prompt Engineering | DSPy |
+|---|---|---|
+| Prompt authoring | Written manually by a person | Generated automatically by compiler |
+| Model changes | Rewrite from scratch | Adapt by recompiling |
+| Optimization criterion | Intuition and experience | Defined metric function |
+| Reproducibility | Low (tacit knowledge-dependent) | High (specified in code) |
+| Best scale | Small, simple pipelines | Multi-step, complex pipelines |
+
+## When DSPy Fits — and When It Doesn't
+
+DSPy shines when the **evaluation metric can be expressed in code** and sufficient training examples exist (dozens to hundreds of samples). Tasks with clear correct answers — information extraction, QA, summarization — are ideal.
+
+There are important caveats. First, compilation consumes many LLM calls; large training sets and complex pipelines can become expensive. Second, a poorly defined metric triggers Goodhart's Law: the compiler optimizes the metric function itself rather than the underlying task. Third, tasks where success is hard to quantify — creative writing, open-ended advice — are a poor fit.
+
+DSPy reduces the burden of manually crafting the policy `π`. But if you want to automate not just the policy but the agent scaffold itself, the next chapter, AlphaEvolve, points in that direction.

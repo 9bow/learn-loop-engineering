@@ -1,0 +1,143 @@
+---
+title: "테스트 주도 에이전틱 루프"
+description: 테스트 러너를 루프의 결정론적 검증자로 삼는 패턴 — 코딩 에이전트에서 테스트가 종료 조건이 되고, 루프가 "테스트를 통과할 때까지" 실행되는 구조를 살펴봅니다.
+sidebar:
+  order: 4
+learning_objectives:
+  - "테스트 러너를 검증자로 사용하는 에이전틱 루프의 구조를 설명하고 구현할 수 있다"
+  - "feature list와 테스트 통과 상태를 종료 조건으로 연결하는 패턴을 적용할 수 있다"
+  - "SWE-agent와 Codex가 테스트 주도 루프를 어떻게 활용하는지 이해한다"
+prerequisites:
+  - "6-2-generator-verifier-gap"
+estimated_minutes: 28
+references:
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Yang et al. — SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering (arXiv:2405.15793)"
+    url: "https://arxiv.org/abs/2405.15793"
+    accessed: "2026-06-30"
+  - title: "OpenAI — Unrolling the Codex agent loop"
+    url: "https://openai.com/index/unrolling-the-codex-agent-loop/"
+    accessed: "2026-06-30"
+---
+
+## 테스트가 진실을 말한다
+
+코딩 에이전트의 핵심 강점은 검증이 결정론적이라는 점이다. 코드가 맞는지 틀린지는 모호한 판단이 아니다. **테스트를 실행하면 통과하거나 실패한다.** 이 이분법적 명확성이 에이전틱 루프와 완벽하게 결합된다. 루프의 종료 조건을 "모델이 완료됐다고 선언할 때"가 아니라 "모든 테스트가 통과할 때"로 바꾸면, Generator-Verifier 격차(6-2)를 결정론적 방식으로 메울 수 있다.
+
+이것이 **테스트 주도 에이전틱 루프(Test-Driven Agentic Loop)**의 핵심 아이디어다. 에이전트는 코드를 수정하고, 테스트를 실행하고, 결과를 보고, 다시 수정하는 과정을 반복한다. **테스트가 모두 통과하기 전에는 루프가 종료될 수 없다.**
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│              테스트 주도 에이전틱 루프 구조                     │
+│                                                              │
+│   [목표: 기능 구현 + 테스트 통과]                             │
+│                                                              │
+│   ┌─────────────────────────────────────────┐               │
+│   │  1. 코드 수정 (Edit Tool)               │               │
+│   │         ↓                               │               │
+│   │  2. 테스트 실행 (Run Tests)             │               │
+│   │         ↓                               │               │
+│   │  3. 결과 분석                           │               │
+│   │         ↓                               │               │
+│   │  테스트 통과? ── 예 ──→ [루프 종료: 성공] │               │
+│   │         │                               │               │
+│   │        아니오                            │               │
+│   │         ↓                               │               │
+│   │  4. 오류 분석 + 수정 계획               │               │
+│   │         └───────────────────────────────┘ (반복)       │
+│   │                                                         │
+│   max_iterations 초과 → [루프 종료: 실패]                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Feature List 패턴
+
+단일 테스트가 아니라 **기능 목록(feature list)**과 각 기능의 테스트 통과 상태를 추적하면 더 세밀한 제어가 가능하다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+from dataclasses import dataclass
+
+@dataclass
+class Feature:
+    name: str
+    test_command: str
+    passed: bool = False
+    attempts: int = 0
+
+
+def run_test_driven_loop(features: list[Feature], max_iters: int = 50):
+    """
+    모든 기능의 테스트가 통과할 때만 루프 종료.
+    테스트가 종료 조건이고, 모델의 선언은 부차적.
+    """
+    messages = build_initial_context(features)
+
+    for i in range(max_iters):
+        # 아직 실패 중인 기능 목록 파악
+        pending = [f for f in features if not f.passed]
+        if not pending:
+            return {"status": "success", "iterations": i}
+
+        # 에이전트에게 현재 실패 기능 정보 제공
+        status_report = format_feature_status(features)
+        messages.append({
+            "role": "user",
+            "content": f"현재 상태:\n{status_report}\n\n다음 실패 기능을 수정하세요: {pending[0].name}"
+        })
+
+        response = model.generate(messages, tools=CODE_TOOLS)
+
+        # 코드 수정 도구 실행
+        for call in response.tool_calls:
+            result = run_tool(call)
+            messages.append(tool_result(result))
+
+        # 모든 기능에 대해 테스트 실행 (에이전트 선언 무관)
+        for feature in features:
+            test_result = run_test(feature.test_command)
+            feature.passed = test_result.exit_code == 0
+            feature.attempts += 1
+
+        # 진전 없음 감지: 3회 연속 동일 실패 패턴
+        if no_progress(features, window=3):
+            return {"status": "stuck", "pending": pending}
+
+    return {"status": "max_iters_exceeded", "pending": [f for f in features if not f.passed]}
+
+
+def format_feature_status(features: list[Feature]) -> str:
+    lines = []
+    for f in features:
+        status = "통과" if f.passed else "실패"
+        lines.append(f"- [{status}] {f.name} (시도: {f.attempts}회)")
+    return "\n".join(lines)
+```
+
+## SWE-agent와 Codex의 사례
+
+실제 코딩 에이전트들이 이 패턴을 어떻게 구현하는지 살펴보면 설계 원칙이 구체화된다.
+
+**SWE-agent** (Yang et al., NeurIPS 2024)는 실제 GitHub 이슈를 해결하는 에이전트다. 에이전트는 레포지터리 파일 탐색, 코드 편집, 테스트 실행을 반복한다. 평가 기준 자체가 "패치를 적용했을 때 SWE-bench 테스트 스위트를 통과하는가"이므로, 테스트 통과가 곧 작업 완료의 정의다.
+
+**Codex 루프** (OpenAI)는 plan-execute-verify-fix 사이클로 동작한다. Codex-1 모델은 "테스트가 통과할 때까지 루프를 반복"하는 방식으로 강화학습 훈련이 이루어졌다. 이는 테스트 통과가 단순한 검증 도구가 아니라 **학습 신호 자체**임을 의미한다.
+
+Anthropic의 장기 실행 에이전트 가이드도 같은 원칙을 권장한다. 이른 성공 종료(premature success)를 방지하기 위해, 에이전트가 "완료됐다"고 선언해도 하네스가 독립적으로 완료 여부를 검증해야 한다.
+
+## 테스트 없는 기능을 다룰 때
+
+모든 태스크가 테스트로 검증 가능하지는 않다. 문서 작성, 리팩터링 효과, UX 개선은 테스트 통과 여부로 측정하기 어렵다. 이 경우 대안은 다음과 같다.
+
+| 상황 | 대안 검증 방법 |
+|------|-------------|
+| 코드 스타일/린트 | 린터 실행 결과 (결정론적) |
+| 문서 완결성 | 체크리스트 기반 확인 |
+| 복잡한 리팩터링 | 기존 테스트 전체 통과 + LLM-as-Judge |
+| 순수 언어 태스크 | LLM-as-Judge (6-3) |
+
+테스트 주도 루프의 핵심 교훈은 **검증 신호를 외부화하고 결정론화하라**는 것이다. 모델 내부 판단에만 의존하는 종료 조건은 취약하다. 외부 도구(테스트 러너, 린터, CI 파이프라인)가 제공하는 이진(pass/fail) 신호가 루프를 가장 신뢰할 수 있게 제어한다.
+
+테스트가 통과하면 루프는 멈춘다. 이 단순한 원칙이 코딩 에이전트를 신뢰할 수 있게 만드는 기반이다.

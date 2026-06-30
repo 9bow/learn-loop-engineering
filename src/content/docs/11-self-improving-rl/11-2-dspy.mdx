@@ -1,0 +1,140 @@
+---
+title: "DSPy: 옵티마이저 인 더 루프"
+description: DSPy가 프롬프트를 파라미터화된 모듈로 추상화하고, 컴파일러가 데이터로 최적화하는 방식을 이해합니다.
+sidebar:
+  order: 2
+learning_objectives:
+  - "DSPy의 서명(Signature)·모듈·컴파일러 개념을 설명하고 기존 프롬프트 엔지니어링과 구분할 수 있다"
+  - "BootstrapFewShot과 MIPROv2 옵티마이저가 루프를 어떻게 활용하는지 서술할 수 있다"
+  - "DSPy 적용이 적합한 상황과 적합하지 않은 상황을 판단할 수 있다"
+prerequisites:
+  - "11-1-loop-as-mdp"
+estimated_minutes: 30
+references:
+  - title: "Khattab et al. — DSPy: Compiling Declarative Language Model Calls (arXiv:2310.03714)"
+    url: "https://arxiv.org/abs/2310.03714"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## 수동 프롬프트 엔지니어링의 한계
+
+루프를 설계할 때 가장 시간이 많이 드는 작업 중 하나가 **프롬프트 작성**이다. "단계적으로 생각하라", "JSON 형식으로 출력하라", "예시 세 개를 포함하라" — 이 지시들은 모두 사람이 직접 작성하고, 직접 테스트하고, 직접 수정한다. 모델이 바뀌면 처음부터 다시 해야 한다. 작업이 조금만 달라져도 수십 줄의 프롬프트를 뜯어고쳐야 한다.
+
+**DSPy(Declarative Self-improving Python)** 는 이 문제에 정면으로 도전한다. 핵심 아이디어는 간단하다. **프롬프트를 코드처럼 파라미터화하고, 데이터와 메트릭을 이용해 컴파일러가 자동으로 최적화하게 하라.**
+
+## DSPy의 세 가지 추상화
+
+### 1. 서명(Signature) — "무엇을" 할지 선언
+
+서명은 입출력 필드의 타입 어노테이션이다. "어떻게" 할지는 명시하지 않는다.
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+import dspy
+
+class QuestionAnswering(dspy.Signature):
+    """컨텍스트를 바탕으로 질문에 답합니다."""
+    context: str = dspy.InputField()
+    question: str = dspy.InputField()
+    answer: str = dspy.OutputField()
+
+# 체인-오브-쏘트 추론이 필요한 수학 문제 서명
+class MathSolver(dspy.Signature):
+    """수학 문제를 단계별로 풀어 최종 답을 구합니다."""
+    problem: str = dspy.InputField()
+    reasoning: str = dspy.OutputField(desc="단계별 풀이 과정")
+    answer: float = dspy.OutputField()
+```
+
+서명을 쓰는 사람은 "이 입력으로 저 출력을 만들어라"고만 선언한다. 중간의 CoT 프롬프트, 예시, 지시문은 컴파일러가 결정한다.
+
+### 2. 모듈(Module) — 재사용 가능한 추론 블록
+
+`dspy.Predict`, `dspy.ChainOfThought`, `dspy.ReAct` 등이 기본 모듈이다. 모듈은 서명을 받아 실행 가능한 호출 단위로 만든다.
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+# 단순 예측
+predict = dspy.Predict(QuestionAnswering)
+
+# CoT 추론 포함
+cot = dspy.ChainOfThought(MathSolver)
+
+# 여러 모듈을 조합해 파이프라인 구성
+class RAGPipeline(dspy.Module):
+    def __init__(self):
+        self.retrieve = dspy.Retrieve(k=3)
+        self.answer = dspy.ChainOfThought(QuestionAnswering)
+
+    def forward(self, question):
+        context = self.retrieve(question).passages
+        return self.answer(context="\n".join(context), question=question)
+```
+
+### 3. 컴파일러(Compiler) — "어떻게" 할지를 데이터로 학습
+
+컴파일러는 학습 예제(입력-출력 쌍)와 메트릭(성공 판별 함수)을 받아, 모듈의 내부 프롬프트를 최적화한다.
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│                    DSPy 컴파일 루프                              │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  학습 예제 ──▶ ┌──────────────┐                               │
+│  (Q, A 쌍)    │  옵티마이저   │ ◀── 메트릭 함수 (성공 판별)    │
+│               │              │                               │
+│               │ ① 후보 프롬프트 생성                          │
+│               │ ② 전체 파이프라인 실행                        │
+│               │ ③ 메트릭으로 품질 평가                        │
+│               │ ④ 더 나은 프롬프트 선택·저장                  │
+│               └──────┬───────┘                               │
+│                      │                                        │
+│                      ▼                                        │
+│             최적화된 프롬프트가 내장된 모듈                     │
+│             (배포 준비 완료)                                   │
+└────────────────────────────────────────────────────────────────┘
+```
+
+## 두 가지 핵심 옵티마이저
+
+**BootstrapFewShot**: 가장 단순한 옵티마이저. 학습 예제에서 파이프라인을 실행해 성공한 경로를 수집하고, 그것을 몇 샷(few-shot) 예시로 자동 삽입한다. 사람이 직접 예시를 고르는 수고를 줄이면서, 실제로 성공한 추론 경로만 예시로 사용한다는 장점이 있다.
+
+**MIPROv2**: 더 정교한 옵티마이저. 지시문(instruction)과 예시를 함께 최적화하며, 베이지안 최적화로 후보 프롬프트를 효율적으로 탐색한다. 더 많은 LLM 호출이 필요하지만 복잡한 파이프라인에서 더 큰 개선을 보인다.
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+# 컴파일 과정 예시
+teleprompter = dspy.MIPROv2(metric=exact_match, auto="medium")
+optimized_pipeline = teleprompter.compile(
+    RAGPipeline(),
+    trainset=train_examples,
+)
+# 이제 optimized_pipeline 내부에는 컴파일러가 찾은
+# 최적 지시문과 예시가 포함되어 있다
+```
+
+## DSPy 루프의 의미: 옵티마이저 인 더 루프
+
+DSPy 컴파일은 그 자체가 **외부 최적화 루프**다. 학습 예제에 대해 파이프라인을 실행하고, 메트릭으로 평가하고, 프롬프트를 조정하고, 다시 실행한다. 이 루프는 사람의 개입 없이 자동으로 돌아간다.
+
+| 비교 항목 | 전통적 프롬프트 엔지니어링 | DSPy |
+|---|---|---|
+| 프롬프트 작성 | 사람이 직접 수기 작성 | 컴파일러가 자동 생성 |
+| 모델 변경 시 | 처음부터 재작성 | 재컴파일로 자동 적응 |
+| 최적화 기준 | 직관·경험 | 정의된 메트릭 함수 |
+| 재현 가능성 | 낮음 (암묵지 의존) | 높음 (코드로 명세) |
+| 적합한 규모 | 소규모 파이프라인 | 다단계 복잡 파이프라인 |
+
+## 적합한 사용 시나리오와 주의점
+
+DSPy가 강점을 발휘하는 상황은 **평가 메트릭을 코드로 정의할 수 있고**, 충분한 학습 예제(수십~수백 개)가 있을 때다. 정보 추출, QA, 요약처럼 정답이 명확한 작업이 대표적이다.
+
+반면 주의해야 할 상황도 있다. 첫째, 컴파일은 많은 LLM 호출을 소비한다 — 복잡한 파이프라인과 대규모 학습셋은 비용이 크다. 둘째, 메트릭을 잘못 정의하면 Goodhart's Law에 걸린다: 컴파일러가 메트릭 함수를 해킹하는 방향으로 프롬프트를 최적화할 수 있다. 셋째, 창의적 글쓰기처럼 성공을 수치로 표현하기 어려운 작업에는 적합하지 않다.
+
+DSPy는 루프의 정책(π)을 수동으로 작성하는 부담을 줄인다. 하지만 정책이 아닌 에이전트의 스캐폴드 코드 자체를 자동화하려면? 다음 챕터 AlphaEvolve가 그 방향을 보여준다.

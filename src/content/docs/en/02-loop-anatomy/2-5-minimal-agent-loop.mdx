@@ -1,0 +1,164 @@
+---
+title: "A Minimal Agent Loop in Under 50 Lines"
+description: Implement everything covered so far in fewer than 50 lines of Python — a while loop, stop_reason branching, and a max-iteration guard.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Implement a minimal agent loop using a while loop and stop_reason branching"
+  - "Explain why a max-iteration guard is an absolute requirement and implement it"
+  - "Identify the directions in which this minimal loop can be extended"
+prerequisites:
+  - "2-3-tool-use-aci"
+estimated_minutes: 35
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Writing effective tools for AI agents"
+    url: "https://www.anthropic.com/engineering/writing-tools-for-agents"
+    accessed: "2026-06-30"
+---
+
+## Why "Minimal"?
+
+Before reaching for a complex agentic framework, it is important to understand what the simplest possible loop looks like. This is a principle Anthropic's guides consistently emphasize: **do not add complexity beyond what the task requires**. In many cases a 50-line loop does everything a multi-thousand-line framework would do.
+
+The minimal agent in this chapter has exactly three essential elements:
+
+1. **while loop** — repeats the model call and tool execution.
+2. **stop_reason branching** — exits on `end_turn`, continues on `tool_use`.
+3. **max-iteration guard** — enforces a finite upper bound to prevent infinite loops.
+
+## Complete Implementation (48 lines)
+
+This is illustrative pseudocode; actual API signatures differ.
+
+```python
+# minimal_agent.py — minimal agent loop (48 lines)
+import json
+from typing import Any
+
+MAX_ITERATIONS = 20  # infinite-loop prevention guard
+
+
+def execute_tool(name: str, inputs: dict[str, Any]) -> str:
+    """Receive a tool name and inputs; return the result as a string."""
+    if name == "calculator":
+        expression = inputs["expression"]
+        try:
+            return str(eval(expression, {"__builtins__": {}}, {}))
+        except Exception as e:
+            return f"Calculation error: {e}. Please provide a valid expression."
+    raise ValueError(f"Unknown tool: {name}")
+
+
+def run_agent(task: str, model, tools: list[dict]) -> str:
+    """
+    Minimal agent loop.
+    Returns: final text response
+    Raises: RuntimeError if max iterations exceeded
+    """
+    messages = [{"role": "user", "content": task}]
+
+    for iteration in range(MAX_ITERATIONS):
+        # ── REASON ──────────────────────────────────────────
+        response = model.generate(messages=messages, tools=tools)
+
+        # ── TERMINATION CONDITION ────────────────────────────
+        if response.stop_reason == "end_turn":
+            return response.text
+
+        # ── ACT: execute tools ───────────────────────────────
+        tool_results = []
+        for call in response.tool_calls:
+            result = execute_tool(call.name, call.input)
+            tool_results.append({
+                "tool_use_id": call.id,
+                "content": result,
+            })
+
+        # ── OBSERVE: add results to context ─────────────────
+        messages.append({"role": "assistant", "content": response.tool_calls})
+        messages.append({"role": "tool",      "content": tool_results})
+
+    # ── MAX ITERATION EXCEEDED ───────────────────────────────
+    raise RuntimeError(
+        f"Agent did not complete within {MAX_ITERATIONS} iterations. "
+        "Try breaking the task into smaller pieces, or increase MAX_ITERATIONS."
+    )
+```
+
+## Code Walkthrough: The Role of Each Part
+
+```text
+Minimal Loop Structure
+───────────────────────────────────────────────────────────
+run_agent("task", model, tools)
+  │
+  ├─ messages = [{"role": "user", "content": "task"}]
+  │
+  └─ for iteration in range(20):          ← MAX_ITERATIONS guard
+       │
+       ├─ response = model.generate(...)   ← REASON
+       │
+       ├─ if end_turn: return              ← normal exit
+       │
+       ├─ for call in tool_calls:          ← ACT
+       │    result = execute_tool(call)
+       │
+       └─ messages += [assistant, tool]    ← OBSERVE (context accumulates)
+  │
+  └─ raise RuntimeError                   ← abnormal exit (MAX exceeded)
+───────────────────────────────────────────────────────────
+```
+
+The **MAX_ITERATIONS guard** is the most important safety mechanism in the loop. If the model fails to return `end_turn` for any reason, the loop runs forever without a cap. Without this guard, the infinite-loop failure mode that plagued AutoGPT is reproduced exactly. The default of 20 is conservative. Adjust it for task complexity, but always enforce a **finite upper bound**.
+
+## Tool Definition and Usage Example
+
+```python
+# Tool list definition
+calculator_tool = {
+    "name": "calculator",
+    "description": "Evaluates a mathematical expression.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "expression": {
+                "type": "string",
+                "description": "Expression to evaluate (e.g. '(2 + 3) * 4')"
+            }
+        },
+        "required": ["expression"]
+    }
+}
+
+# Example usage
+# result = run_agent(
+#     task="Calculate 357 times 428 and explain the result",
+#     model=my_model,
+#     tools=[calculator_tool]
+# )
+# → model calls calculator("357 * 428")
+# → receives "152796" and adds it to context
+# → returns "357 × 428 = 152,796"
+```
+
+## Extending This Loop: Next Steps
+
+The minimal loop is intentionally sparse. A production loop adds elements on top of this skeleton:
+
+| Extension | Role | Covered in |
+|---|---|---|
+| State management | Maintain metadata across iterations | 2-4 |
+| Context compaction | Summarize when context grows too long | 05-context-in-loop |
+| Richer termination | Token cap, time limit, no-progress detection | 06-loop-control |
+| Error retries | Retry logic on tool failure | 07-failure-reliability |
+| Human approval gate | Confirmation before destructive actions | 06-loop-control |
+| Observability | Per-iteration tracing | 09-observability |
+
+In the 02-loop-anatomy section we covered the internal structure of one loop iteration (Observe-Reason-Act-Evaluate), the internal reasoning mechanism (Chain-of-Thought), the tool interface (Tool Use / ACI), state management (structured output), and finally a minimal working implementation of all the above. The next section introduces more sophisticated patterns layered on this loop — exploring the boundaries of what a single agent can accomplish.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="02-loop-anatomy" lang="en" client:load />

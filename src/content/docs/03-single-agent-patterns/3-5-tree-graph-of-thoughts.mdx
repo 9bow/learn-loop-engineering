@@ -1,0 +1,177 @@
+---
+title: "Tree of Thoughts와 Graph of Thoughts: 탐색 기반 루프"
+description: 추론 공간을 트리 또는 그래프로 구조화해 BFS/DFS 탐색으로 최적 경로를 찾는 ToT와 GoT 패턴을 살펴봅니다.
+sidebar:
+  order: 5
+learning_objectives:
+  - "ToT의 BFS/DFS 탐색 구조와 State Evaluator 역할을 설명할 수 있다"
+  - "GoT가 트리 구조를 DAG로 확장해 얻는 이점을 이해한다"
+  - "Game of 24 벤치마크에서의 검증된 성능 수치를 인용하고 비용 폭증 문제를 설명할 수 있다"
+prerequisites:
+  - "3-1-react"
+estimated_minutes: 32
+references:
+  - title: "Yao et al. — Tree of Thoughts: Deliberate Problem Solving with Large Language Models (arXiv:2305.10601)"
+    url: "https://arxiv.org/abs/2305.10601"
+    accessed: "2026-06-30"
+  - title: "Besta et al. — Graph of Thoughts: Solving Elaborate Problems with Large Language Models (arXiv:2308.09687)"
+    url: "https://arxiv.org/abs/2308.09687"
+    accessed: "2026-06-30"
+  - title: "Lilian Weng — LLM Powered Autonomous Agents"
+    url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
+    accessed: "2026-06-30"
+---
+
+## 선형 사고를 넘어서
+
+ReAct, Self-Refine, Self-Consistency는 공통적으로 **선형(linear)** 추론 경로를 가진다. ReAct는 Thought → Action → Observation을 한 방향으로 진행하고, Self-Refine은 Generate → Critique → Refine을 순차로 반복하며, Self-Consistency는 여러 독립 경로를 병렬로 돌리지만 각 경로 자체는 선형이다.
+
+Tree of Thoughts(ToT)와 Graph of Thoughts(GoT)는 이 선형성을 깨고 추론 공간을 **명시적 자료 구조**로 표현한다. 각 중간 사고(thought)를 노드로, 사고 간 전이를 엣지로 모델링해 고전 AI의 탐색 알고리즘(BFS, DFS, 빔 서치)을 적용한다.
+
+## Tree of Thoughts
+
+ToT(Yao et al., NeurIPS 2023)는 추론 과정을 **트리**로 구성한다. 루트는 초기 문제, 각 레벨은 추론의 한 단계, 각 노드는 그 단계에서 가능한 하나의 "생각 상태(thought state)"다.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                   Tree of Thoughts 구조                       │
+│                                                              │
+│                  [문제: 24 만들기]                            │
+│                  4, 8, 6, 2 사용                              │
+│                        │                                    │
+│          ┌─────────────┼─────────────┐                      │
+│          ▼             ▼             ▼                       │
+│      [4+8=12]      [4×2=8]      [8-4=4]                     │
+│       남은: 6,2    남은: 6,8    남은: 6,2                     │
+│       평가: 중      평가: 높      평가: 낮                     │
+│          │             │                                     │
+│     ┌────┴────┐   ┌────┴────┐                               │
+│     ▼         ▼   ▼         ▼                               │
+│  [12×2=24] [12-2]  [8×3=24] [8+6=14]                       │
+│  성공!         ...  성공!     ...                             │
+└──────────────────────────────────────────────────────────────┘
+```
+
+ToT에는 두 가지 핵심 구성 요소가 있다.
+
+**Thought Generator**: 현재 상태에서 가능한 다음 사고를 여러 개 생성한다. 동일 모델에 "이 상태에서 가능한 다음 단계를 k개 제안하라"는 프롬프트로 구현한다.
+
+**State Evaluator**: 각 사고 상태가 목표에 얼마나 가까운지를 점수로 평가한다. 이 평가 점수에 따라 탐색 알고리즘이 어떤 노드를 확장할지 결정한다. 평가 자체도 LLM이 수행하거나("이 상태는 좋은가/나쁜가?"), 도메인별 휴리스틱 함수를 쓸 수 있다.
+
+### Game of 24 벤치마크
+
+Game of 24는 4개의 숫자와 사칙연산으로 24를 만드는 퍼즐이다. Chain-of-Thought(CoT) 방식이 이 벤치마크에서 달성한 성공률은 **4%**에 불과했다. ToT BFS 방식을 적용하자 **74%**로 급증했다. 이 극적인 차이는 ToT가 다단계 탐색이 필요한 조합 퍼즐에서 얼마나 강력한지를 보여준다.
+
+| 방식 | Game of 24 성공률 |
+|------|-----------------|
+| Chain-of-Thought | **4%** |
+| Tree of Thoughts (BFS) | **74%** |
+
+### Python 구현 예시 (BFS)
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+from dataclasses import dataclass
+from collections import deque
+
+@dataclass
+class ThoughtNode:
+    state: str          # 현재 상태 표현
+    depth: int
+    score: float = 0.0
+    parent: "ThoughtNode | None" = None
+
+def tree_of_thoughts_bfs(
+    model,
+    problem: str,
+    generate_k: int = 3,   # 각 노드에서 생성할 자식 수
+    max_depth: int = 4,
+    beam_width: int = 5,   # BFS에서 유지할 최대 노드 수
+) -> str:
+    """BFS 기반 Tree of Thoughts."""
+    root = ThoughtNode(state=problem, depth=0, score=1.0)
+    frontier = deque([root])
+
+    for depth in range(max_depth):
+        next_frontier = []
+
+        for node in list(frontier):
+            # Thought Generator: k개의 다음 상태 생성
+            gen_prompt = (
+                f"문제: {problem}\n현재 상태: {node.state}\n"
+                f"다음 추론 단계를 {generate_k}개 생성하라. 번호 목록으로."
+            )
+            thoughts = parse_thoughts(
+                model.generate([{"role": "user", "content": gen_prompt}]).text,
+                k=generate_k,
+            )
+
+            for thought in thoughts:
+                child = ThoughtNode(
+                    state=thought,
+                    depth=depth + 1,
+                    parent=node,
+                )
+
+                # State Evaluator: 각 상태 점수 평가
+                eval_prompt = (
+                    f"문제: {problem}\n상태: {thought}\n"
+                    "이 상태가 문제 해결에 얼마나 도움이 되는가? "
+                    "0~1 사이 점수만 출력하라."
+                )
+                score_text = model.generate(
+                    [{"role": "user", "content": eval_prompt}]
+                ).text.strip()
+                child.score = float(score_text)
+                next_frontier.append(child)
+
+        # 빔 서치: 상위 beam_width개 노드만 유지
+        next_frontier.sort(key=lambda n: n.score, reverse=True)
+        frontier = deque(next_frontier[:beam_width])
+
+    # 최고 점수 노드의 경로를 최종 답으로 반환
+    best = max(frontier, key=lambda n: n.score)
+    return best.state
+```
+
+## Graph of Thoughts: 트리를 DAG로 확장
+
+ToT의 트리 구조는 한 가지 제약이 있다. 각 노드는 정확히 하나의 부모를 가진다. 즉, 서로 다른 추론 경로에서 도달한 중간 결론을 **합칠(aggregate) 수 없다**. GoT(Besta et al., AAAI 2024)는 이 제약을 제거해 추론 그래프를 **유향 비순환 그래프(DAG)**로 일반화한다.
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│          ToT vs GoT 구조 비교                                   │
+│                                                                │
+│  ToT (트리)              GoT (DAG)                             │
+│                                                                │
+│       A                      A                                 │
+│      / \                    / \                                │
+│     B   C                  B   C                               │
+│    / \   \                / \ / \                              │
+│   D   E   F              D   E   F                             │
+│                               │                               │
+│  각 노드: 부모 1개          ┌──┴──┐                            │
+│                            G     H                            │
+│                          (B+C의 합산)                          │
+└────────────────────────────────────────────────────────────────┘
+```
+
+GoT에서는 두 개 이상의 부분 해(partial solution)를 **집계(aggregate)** 연산으로 합칠 수 있다. 긴 텍스트 정렬 문제에서 A부분 정렬 결과와 B부분 정렬 결과를 병합하는 것처럼, 독립적으로 처리된 결과를 통합하는 태스크에 자연스럽게 적합하다.
+
+GoT 논문은 정렬 작업(sorting task)에서 ToT 대비 **품질 +62%, 비용 -31%** 를 달성했다고 보고했다. 합산 가능한 분할·정복형 태스크에서 트리보다 효율적인 이유가 여기에 있다.
+
+## 공통 약점: 비용 폭증
+
+ToT와 GoT의 가장 큰 실용적 장벽은 **비용**이다. 각 노드에서 k개의 사고를 생성하고(k번의 LLM 호출), 각 사고를 평가하는(또 k번의 LLM 호출) 구조라면, 깊이 d에서 노드 수는 k^d에 비례한다. 빔 서치로 제한하더라도 탐색 비용이 크다.
+
+| 구성 | LLM 호출 수 (예시) |
+|------|------------------|
+| CoT 단일 | 1 |
+| Self-Consistency (N=10) | 10 |
+| ToT (k=3, 깊이=3, 빔=5) | ~45~90 |
+| ToT (k=5, 깊이=5, 빔=10) | ~수백 |
+
+따라서 ToT/GoT는 **고부가가치이고 실시간 응답이 필요 없는** 태스크에 한정해 쓰는 것이 현실적이다. 게임 퍼즐, 정형 최적화, 과학적 가설 탐색처럼 탐색 공간이 잘 정의된 도메인이 이상적이다.
+
+일반적인 Q&A나 코딩 태스크에서 ToT/GoT를 기본 패턴으로 쓰면, 레이턴시와 비용 대비 이익이 크지 않다. 다음 챕터의 ReWOO와 LLMCompiler는 정반대 방향, 즉 **효율 최대화**에 초점을 맞춘다.

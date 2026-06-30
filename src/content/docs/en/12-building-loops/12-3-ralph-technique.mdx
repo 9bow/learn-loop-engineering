@@ -1,0 +1,143 @@
+---
+title: "The Ralph Technique: Infinite Loops in Practice"
+description: How Geoffrey Huntley's Ralph technique implements a productive AI agent with the simplest possible shell loop, and the principles behind it.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Explain the core structure of a Ralph loop and the PROMPT.md-based context injection approach"
+  - "Apply the single-responsibility-per-loop, spec-first, and test-backpressure principles"
+  - "Judge when the Ralph technique is a good fit and when it is not"
+prerequisites:
+  - "12-1-case-claude-code-codex"
+estimated_minutes: 28
+references:
+  - title: "Geoffrey Huntley — Ralph Wiggum as a software engineer"
+    url: "https://ghuntley.com/ralph/"
+    accessed: "2026-06-30"
+  - title: "Geoffrey Huntley — everything is a ralph loop"
+    url: "https://ghuntley.com/loop/"
+    accessed: "2026-06-30"
+---
+
+## The Simplest Possible Loop
+
+The heart of the Ralph technique, published by Geoffrey Huntley, is a single shell command.
+
+```bash
+while :; do cat PROMPT.md | claude-code; done
+```
+
+That's it. `while :` is an infinite loop; `cat PROMPT.md | claude-code` reads the prompt file and pipes it into Claude Code. Because `PROMPT.md` is re-read at the start of every iteration, editing the prompt while the loop runs means **changes take effect from the very next iteration**.
+
+Behind this simplicity lies a set of precise principles.
+
+## The Name "Ralph" — Respect Simplicity
+
+"Ralph" comes from Ralph Wiggum of The Simpsons — the simplest, most hapless character, yet strangely effective. Huntley's point carries irony: **what an AI agent may need is not a sophisticated orchestration framework but a simple, disciplined loop**.
+
+Claude Code itself already embeds a powerful agent loop. Ralph adds exactly **one external loop on top of it**. The inner loop (Claude Code) resolves a single task; the outer loop (`while`) keeps running it.
+
+## Ralph's Core Principles
+
+### Principle 1: One Responsibility per Loop
+
+A Ralph loop does exactly one thing at a time. Not "build the whole app" but "add email validation to the login form." Narrower scope means higher success rate and easier diagnosis when something fails.
+
+```text
+Bad PROMPT.md:
+  "Implement authentication, dashboard, notification system, and payment module."
+
+Good PROMPT.md:
+  "Add RFC 5322 format validation to the email input field.
+   On failure, display the message 'Please enter a valid email address.'
+   When done, run npm test and confirm existing tests pass."
+```
+
+### Principle 2: Monolithic Spec File
+
+`PROMPT.md` is not a one-line instruction — it is a document containing **all context** the agent needs to complete the task.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                 PROMPT.md Structure Example                      │
+└─────────────────────────────────────────────────────────────────┘
+
+## Goal
+Add email validation to the login form.
+
+## Current state
+- Form component at src/components/LoginForm.tsx
+- Email field currently only checks for empty value
+- Tests at src/__tests__/LoginForm.test.tsx
+
+## Completion criteria
+- [ ] Only valid email formats accepted
+- [ ] Invalid format shows inline error message
+- [ ] Existing tests continue to pass
+- [ ] New validation tests added
+
+## Constraints
+- React Hook Form library in use
+- No external email validation library allowed
+- TypeScript strict mode enforced
+```
+
+### Principle 3: Spec as a Stable Context
+
+`PROMPT.md` is the **source of truth that does not change** while the loop runs. The agent modifies code, creates files, and runs tests — but `PROMPT.md` stays fixed. When the next iteration begins, the agent sees a clear objective again. This is the "fresh context" strategy from Section 5-5.
+
+### Principle 4: Tests as Backpressure
+
+In a Ralph loop, the signal that terminates the loop is **tests passing**. Specifying "npm test must pass" as a completion criterion in `PROMPT.md` makes the agent keep modifying code until the tests pass. Tests become the loop's termination condition.
+
+```bash
+# Example completion criteria at the end of a PROMPT.md
+## Completion criteria
+Your last action MUST be to run `npm test`.
+Finish only when all tests pass.
+If any test fails, fix the issue and rerun.
+```
+
+### Principle 5: Context Discipline
+
+Each Ralph loop iteration starts with a **clean context**. Previous iteration failures, intermediate results, and internal reasoning do not accumulate. Only `PROMPT.md` and the current state of the codebase are inputs to the next iteration. This naturally prevents context rot (맥락 부패).
+
+### Principle 6: Tune the Prompt, Not the Model
+
+When the loop does not behave as intended, the Ralph approach recommends improving `PROMPT.md` rather than swapping models or adding orchestration complexity. Was the instruction ambiguous? Was the completion criterion unclear? Was a constraint missing? In most cases the problem lies in the **clarity of the prompt**, not the loop structure.
+
+## Ralph Loop Visualization
+
+```text
+          while :; do cat PROMPT.md | claude-code; done
+          │
+  ┌───────┴──────────────────────────────────────────┐
+  │  Iteration 1                                     │
+  │  Read PROMPT.md → run claude-code                │
+  │  (Claude Code inner loop: read·edit·test)        │
+  │  → tests fail → exit (in failed state)           │
+  └───────┬──────────────────────────────────────────┘
+          │ next iteration starts automatically
+  ┌───────┴──────────────────────────────────────────┐
+  │  Iteration 2                                     │
+  │  Re-read PROMPT.md (fresh context)               │
+  │  Starts fresh, independent of previous failure   │
+  │  Works from current code state + PROMPT.md goal  │
+  │  → tests pass → exit (in success state)          │
+  └───────┬──────────────────────────────────────────┘
+          │
+        (manually stop loop or detect success condition)
+```
+
+## When Ralph Is a Good Fit
+
+The Ralph technique is not right for every situation. It is particularly effective when:
+
+- **Repetitive coding tasks**: Applying similar patterns across multiple files, or incremental feature additions
+- **Test-driven development**: When tests can serve as a clear termination condition
+- **Well-defined-scope tasks**: When "done" can be written clearly in `PROMPT.md`
+- **Iterative prompt refinement**: Modifying `PROMPT.md` while the loop runs and seeing the effect immediately
+
+Conversely, long-horizon planning tasks, multi-agent collaboration, or complex real-time external API integration may require a more structured loop.
+
+The next chapter explores **spec-driven loop design**, an extension of Ralph. Beyond `PROMPT.md`, it uses a `specs/` directory and `AGENTS.md` for a more systematic approach to larger projects.

@@ -1,0 +1,98 @@
+---
+title: Mastering Loop Engineering
+description: A deep course on engineering the iterative loops that drive autonomous LLM agents, designing, controlling, verifying, and evolving the loop.
+template: splash
+hero:
+  tagline: An agent is "an LLM running tools in a loop." This site covers the engineering of that loop itself, designing, controlling, verifying, and evolving it, across 12 sections and 62 chapters.
+  actions:
+    - text: Start learning
+      link: /learn-loop-engineering/en/01-foundations/1-1-single-shot-to-loop/
+      icon: right-arrow
+      variant: primary
+    - text: GitHub
+      link: https://github.com/9bow/learn-loop-engineering
+      icon: external
+      variant: minimal
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+## Who this is for
+
+- **Developers who have built an agent** — ran ReAct once but want to systematically understand why loops spin forever and when to stop them
+- **Engineers operating production agents** — tackling cost blow-ups, context collapse, and reliability from a loop-design perspective
+- **AI system designers and researchers** — going beyond single-shot prompting into the principles and limits of autonomous loops, multi-agent systems, and self-improving loops
+
+## What you will learn
+
+Click any card to jump to that section's first chapter. The curriculum runs beginner (01–02) → intermediate (03–08) → advanced (09–11) → hands-on (12).
+
+<CardGrid>
+  <LinkCard
+    title="01. What Is Loop Engineering"
+    href="/learn-loop-engineering/en/01-foundations/1-1-single-shot-to-loop/"
+    description="Limits of single-shot prompting, the definition of an agent, workflow vs agent, the prompt→context→loop lineage, history"
+  />
+  <LinkCard
+    title="02. Anatomy of a Loop"
+    href="/learn-loop-engineering/en/02-loop-anatomy/2-1-observe-reason-act-evaluate/"
+    description="The observe-reason-act-evaluate cycle, CoT, tool use/ACI, structured output, a 50-line minimal loop"
+  />
+  <LinkCard
+    title="03. Single-Agent Loop Patterns"
+    href="/learn-loop-engineering/en/03-single-agent-patterns/3-1-react/"
+    description="ReAct, Reflexion, Plan-and-Execute, Self-Refine, Tree/Graph of Thoughts, ReWOO/LLMCompiler"
+  />
+  <LinkCard
+    title="04. Workflow Patterns"
+    href="/learn-loop-engineering/en/04-workflow-patterns/4-1-prompt-chaining/"
+    description="Prompt chaining, routing, parallelization, orchestrator-workers, evaluator-optimizer"
+  />
+  <LinkCard
+    title="05. Context Engineering in the Loop"
+    href="/learn-loop-engineering/en/05-context-in-loop/5-1-attention-budget-context-rot/"
+    description="Attention budget and context rot, lost in the middle, compaction, loop memory, JIT/fresh context"
+  />
+  <LinkCard
+    title="06. Loop Control and Termination"
+    href="/learn-loop-engineering/en/06-loop-control/6-1-stopping-conditions/"
+    description="Taxonomy of stopping conditions, the generator-verifier gap, LLM-as-judge, test-driven loops, human-in-the-loop"
+  />
+  <LinkCard
+    title="07. Failure Modes and Reliability"
+    href="/learn-loop-engineering/en/07-failure-reliability/7-1-infinite-doom-loops/"
+    description="Infinite/doom loops, error cascades and goal drift, checkpointing/idempotency, retries/crash-only, sandboxing"
+  />
+  <LinkCard
+    title="08. Security and Adversarial Loops"
+    href="/learn-loop-engineering/en/08-security-adversarial/8-1-prompt-injection/"
+    description="Prompt injection and context poisoning, reward hacking, pre-action authorization, bounded autonomy and audit"
+  />
+  <LinkCard
+    title="09. Observability, Evaluation, Economics"
+    href="/learn-loop-engineering/en/09-observability-eval-economics/9-1-tracing-otel/"
+    description="OpenTelemetry gen_ai tracing, trajectory vs final-answer evaluation, SWE-bench, per-iteration economics, prompt caching, model routing"
+  />
+  <LinkCard
+    title="10. Multi-Agent and Long-Horizon Loops"
+    href="/learn-loop-engineering/en/10-multi-agent-long-horizon/10-1-orchestrator-worker-production/"
+    description="Orchestrator-worker in production, handoff vs dispatch, METR time horizons and error compounding, meltdown, framework comparison"
+  />
+  <LinkCard
+    title="11. Self-Improving Loops and the RL Frontier"
+    href="/learn-loop-engineering/en/11-self-improving-rl/11-1-loop-as-mdp/"
+    description="The loop as an MDP, DSPy, AlphaEvolve, Darwin Gödel Machine, GRPO/DeepSeek-R1"
+  />
+  <LinkCard
+    title="12. Hands-On: Building and Operating Loops"
+    href="/learn-loop-engineering/en/12-building-loops/12-1-case-claude-code-codex/"
+    description="Claude Code/Codex case studies, SWE-agent, the Ralph technique, spec-driven design, pattern selection, the Software 3.0 future"
+  />
+</CardGrid>
+
+## Content principles
+
+- **Cite only verifiable primary sources** — arXiv, official engineering blogs (Anthropic, OpenAI, DeepMind), NeurIPS/ICLR/ICML proceedings, respected practitioner blogs. No unsourced statistics.
+- **Compare alternatives in tables** — trade-off-heavy topics like ReAct vs Reflexion vs Plan-Execute are laid out as tables.
+- **Every chapter has a visual** — at least one ASCII diagram, comparison table, or Mermaid graph to make the loop structure visible.
+- **Code examples are Python-first** — conceptual pseudocode; vendor-specific package names may differ from reality and are flagged as such.

@@ -1,0 +1,134 @@
+---
+title: "Meltdown: When Long-Horizon Loops Collapse"
+description: Analyze the three-stage progression of meltdown in long agent loops, and learn to defend against it by combining compaction, checkpointing, and sub-agent isolation.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Describe the three stages of meltdown progression in a long-horizon loop"
+  - "Understand the mechanism linking code quality degradation and goal drift to context pollution"
+  - "Design a meltdown defense combining compaction, checkpointing, and sub-agent isolation"
+prerequisites:
+  - "10-3-time-horizon-error-compounding"
+estimated_minutes: 32
+references:
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — How we built our multi-agent research system"
+    url: "https://www.anthropic.com/engineering/multi-agent-research-system"
+    accessed: "2026-06-30"
+---
+
+## What Is a Meltdown?
+
+The error compounding covered in chapter 10-3 is a mathematical phenomenon. But in real agent loops, something more dramatic than a gradual probability decrease can occur. As the loop grows longer, the agent's behavior may collapse **systematically** — not just occasionally making mistakes, but entering a state of escalating incoherence. This is what is called a **meltdown**.
+
+Meltdown is not "making the occasional error." It is a systemic collapse in which an agent starts with apparently rational behavior, then, as iterations accumulate, progressively exhibits contradictory, self-inconsistent, and goal-irrelevant actions.
+
+## The Three Stages of Meltdown
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                  Meltdown Progression Stages                    │
+├──────────────────┬──────────────────────────────────────────────┤
+│  Stage 1         │  Coherent-Wrong                              │
+│                  │  Agent pursues a wrong direction with        │
+│                  │  conviction; behavior looks logical on the   │
+│                  │  surface but rests on a false premise        │
+├──────────────────┼──────────────────────────────────────────────┤
+│  Stage 2         │  Context Saturation                          │
+│                  │  Tool results, error messages, retry logs    │
+│                  │  accumulate; valid signals become            │
+│                  │  indistinguishable from noise; the model     │
+│                  │  starts failing to reference earlier facts   │
+├──────────────────┼──────────────────────────────────────────────┤
+│  Stage 3         │  Incoherent Loop                             │
+│                  │  Agent re-attempts already-completed work;   │
+│                  │  makes decisions that contradict earlier     │
+│                  │  steps; calls tools unrelated to the goal   │
+└──────────────────┴──────────────────────────────────────────────┘
+```
+
+**Stage 1 — Coherent-Wrong** is the most dangerous stage, precisely because the agent's behavior looks reasonable from the outside. The agent pursues a particular direction with confidence. But the premise underlying that direction is wrong. In a code bug-fixing loop, for example, the agent might diagnose "this bug is a library version issue" — an incorrect diagnosis — and invest all effort in that direction. Every subsequent step is built on this faulty premise.
+
+**Stage 2 — Context Saturation** is the stage where the context window becomes polluted. As iterations accumulate, tool results, error messages, and logs of failed attempts build up. The "lost in the middle" problem from chapter 5-2 becomes acute here: an important fact confirmed in an early iteration is now buried under hundreds of tokens of later content, and the model can no longer adequately reference it.
+
+**Stage 3 — Incoherent Loop** is the post-threshold state. The agent re-attempts file modifications already completed, retries an already-failed approach with the same parameters, or suddenly invokes tools entirely unrelated to the original goal. From the outside this looks like the agent has "lost its mind," but within the polluted context there is an internal logic to these actions — just one that no longer corresponds to reality.
+
+## Code Quality Degradation Pattern
+
+Meltdown is especially visible in code tasks. In early iterations the agent produces clean, readable code: functions are well-separated, variable names are meaningful, logic is consistent. As the loop extends and revisions accumulate, code quality degrades in a recognizable pattern.
+
+The pressure to fix errors quickly leads to hotfixes stacking on top of each other. Special-case handling that does not fit the original structure gets added. Logic that already exists elsewhere gets duplicated. All of this happens because the agent is trying to solve local problems in a polluted context where it can no longer see the full structure of the codebase.
+
+## Defense Strategy: Three Layers
+
+Defense against meltdown operates at three layers.
+
+**Layer 1 — Context Compaction**
+
+When context reaches a threshold — for example, 80–90% of the context window — summarize the entire history and replace it with a fresh representation. Claude Code uses approximately 92% as this threshold. The summary retains completed task results, key discovered facts, and outstanding unresolved issues; it discards detailed process logs.
+
+The critical point is that **the summary must be structured state extraction, not simple compression**.
+
+This is a conceptual pseudocode example; actual API signatures may differ.
+
+```python
+def compact_context(messages: list, model: str) -> list:
+    """
+    When context exceeds the threshold, replace it with
+    a structured state summary.
+    """
+    summary_prompt = """Analyze the following agent loop history
+and extract the essential state.
+
+Must include:
+1. Original goal
+2. List of completed tasks (with results)
+3. Important facts discovered
+4. Current unresolved problems
+5. Next approach to attempt
+
+Loop history:
+{history}
+
+Respond in JSON format."""
+
+    history_text = messages_to_text(messages)
+    summary = call_model(
+        summary_prompt.format(history=history_text),
+        model=model
+    )
+
+    # Replace the entire history with only the summary
+    return [
+        {"role": "user", "content": f"[Context Summary]\n{summary}"},
+        {
+            "role": "assistant",
+            "content": (
+                "Understood. Continuing based on the summarized state."
+            ),
+        },
+    ]
+```
+
+**Layer 2 — Checkpointing**
+
+Save agent state at important milestones: a git commit each time a file modification completes, a state snapshot each time a subtask finishes. If meltdown is detected, roll back to the last stable checkpoint and retry from there.
+
+**Layer 3 — Sub-agent Isolation**
+
+Divide the long loop into work units, with each sub-agent starting from a fresh context. When a sub-agent completes, it returns only structured results to the orchestrator. Context pollution generated inside one sub-agent's loop does not propagate to other sub-agents or the orchestrator.
+
+## Meltdown Detection Signals
+
+Activating these three defensive layers requires detecting that meltdown is occurring. Several signals are reliable indicators.
+
+- **Repeated tool calls**: the same tool called with the same parameters three or more times in a row
+- **Unchanged output hash**: agent reasoning output is nearly identical across consecutive iterations
+- **Goal deviation**: current tool call content is semantically disconnected from the initial goal
+- **Context ratio**: input tokens exceed a threshold fraction of the context window capacity
+
+A **watchdog loop** that automatically monitors these signals and triggers the appropriate defensive response is the standard pattern for long-horizon production systems. Embedding this watchdog in the agent harness — separate from the agent loop itself — is what gives the system a reliable self-correcting capability.
+
+The next chapter compares how different frameworks address these problems, with a structural comparison of LangGraph, Agents SDK, CrewAI, AutoGen, and smolagents.

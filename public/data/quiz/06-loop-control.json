@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "에이전틱 루프의 종료 조건 네 가지 유형에 해당하지 않는 것은?",
+    "options": [
+      "의미적 완료(Semantic)",
+      "반복 한도(Iteration)",
+      "자원 상한(Resource)",
+      "모델 버전 교체(Model Version)"
+    ],
+    "answer": 3,
+    "explanation": "챕터 6-1에서 루프 종료 조건의 네 가지 유형은 의미적 완료(semantic completion), 반복 한도(iteration limit), 자원 상한(resource cap), 무진전 감지(no-progress)입니다. '모델 버전 교체'는 해당하지 않습니다."
+  },
+  {
+    "id": "q2",
+    "question": "stop_reason == \"end_turn\"만 믿으면 안 되는 이유는?",
+    "options": [
+      "end_turn은 오류를 의미하는 신호이기 때문",
+      "모델이 실제로 완료되지 않았음에도 완료를 선언하는 '이른 성공 종료(premature success)'가 발생할 수 있기 때문",
+      "end_turn은 항상 루프를 재시작해야 한다는 신호이기 때문",
+      "모든 LLM API가 stop_reason을 지원하지 않기 때문"
+    ],
+    "answer": 1,
+    "explanation": "챕터 6-1과 6-2에서 모델이 end_turn을 반환해도 목표가 실제로 달성됐는지 별도 평가 없이는 확인할 수 없으며, 이른 성공 종료 실패 모드가 흔하다고 설명합니다."
+  },
+  {
+    "id": "q3",
+    "question": "Generator-Verifier 격차(Generator-Verifier Gap)란?",
+    "options": [
+      "생성 모델과 검증 모델의 파라미터 크기 차이",
+      "LLM이 그럴듯한 텍스트를 생성하는 데는 뛰어나지만, 자신의 생성물이 올바른지 검증하는 것은 더 어렵다는 비대칭성",
+      "두 모델 간 API 응답 지연 차이",
+      "생성 속도와 검증 속도의 격차"
+    ],
+    "answer": 1,
+    "explanation": "챕터 6-2에서 Generator-Verifier 격차는 LLM이 생성에는 뛰어나지만 자기 검증에는 약하다는 핵심적인 비대칭성을 설명합니다."
+  },
+  {
+    "id": "q4",
+    "question": "LLM-as-Judge에서 Zheng et al.(NeurIPS 2023) 연구가 GPT-4 심판의 인간 선호 일치율로 제시한 수치는?",
+    "options": [
+      "60% 이상",
+      "70% 이상",
+      "80% 이상",
+      "95% 이상"
+    ],
+    "answer": 2,
+    "explanation": "챕터 6-3에서 Zheng et al.의 연구는 GPT-4를 심판으로 사용할 때 인간 선호 판단과 80% 이상의 일치율을 달성했다고 명시합니다."
+  },
+  {
+    "id": "q5",
+    "question": "LLM-as-Judge의 세 가지 채점 방식 중 '정답이 알려진 경우'에 가장 적합한 방식은?",
+    "options": [
+      "단일(Single) 채점",
+      "쌍별(Pairwise) 비교",
+      "레퍼런스 기반(Reference) 채점",
+      "앙상블 채점"
+    ],
+    "answer": 2,
+    "explanation": "챕터 6-3에서 레퍼런스 기반 채점은 정답(reference)이 알려진 경우 심판이 생성물과 정답을 비교해 채점하는 방식으로 가장 정확하다고 설명합니다."
+  },
+  {
+    "id": "q6",
+    "question": "LLM-as-Judge의 위치 편향(Position Bias)을 완화하는 방법은?",
+    "options": [
+      "더 큰 모델을 심판으로 사용한다",
+      "A→B, B→A 두 순서로 각각 평가한 후 일관된 결과만 채택한다",
+      "응답 길이를 동일하게 제한한다",
+      "동일 계열 모델을 심판으로 사용하지 않는다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 6-3에서 위치 편향(Position Bias) 완화를 위해 두 응답의 순서를 바꿔 두 번 평가하고, 두 결과가 일치할 때만 승자를 결정하는 방법을 권장합니다."
+  },
+  {
+    "id": "q7",
+    "question": "테스트 주도(test-driven) 에이전틱 루프에서 루프의 자연스러운 종료 조건은?",
+    "options": [
+      "모델이 \"완료\"를 선언할 때",
+      "최대 이터레이션 한도에 도달할 때",
+      "모든 테스트가 통과할 때",
+      "비용 한도에 도달할 때"
+    ],
+    "answer": 2,
+    "explanation": "챕터 6-4에서 테스트 주도 루프는 테스트 결과를 결정론적 검증자(verifier)로 사용하며, 모든 테스트가 통과하면 루프를 종료하는 것이 자연스러운 종료 조건이라고 설명합니다."
+  },
+  {
+    "id": "q8",
+    "question": "Human-in-the-Loop에서 '자율성 슬라이더(autonomy slider)'의 개념은?",
+    "options": [
+      "모델의 창의성 수준을 조절하는 temperature 파라미터",
+      "에이전트 자율성 수준을 스텝별 수동 승인부터 완전 자동까지 설계 단계에서 선택하는 개념",
+      "병렬 에이전트 수를 결정하는 파라미터",
+      "컨텍스트 창 크기를 동적으로 조절하는 설정"
+    ],
+    "answer": 1,
+    "explanation": "챕터 6-5에서 자율성 슬라이더는 '모든 스텝 승인 → 위험 행동만 승인 → 완료 후 검토 → 완전 자동'의 네 수준 중 에이전트 특성에 맞는 수준을 설계 단계에서 결정하는 개념입니다."
+  },
+  {
+    "id": "q9",
+    "question": "'무진전 감지(no-progress detection)'가 필요한 루프 종료 유형은?",
+    "options": [
+      "의미적 완료(Semantic completion)",
+      "반복 한도(Iteration limit)",
+      "자원 상한(Resource cap)",
+      "무진전(No-progress)"
+    ],
+    "answer": 3,
+    "explanation": "챕터 6-1에서 연속 N회 출력이 동일하거나 목표 대비 진전이 없는 둠 루프를 탐지하는 것이 무진전(no-progress) 종료 유형이라고 설명합니다."
+  },
+  {
+    "id": "q10",
+    "question": "LangGraph에서 Human-in-the-Loop를 구현하기 위한 핵심 함수는?",
+    "options": [
+      "pause()",
+      "interrupt()",
+      "checkpoint()",
+      "approve()"
+    ],
+    "answer": 1,
+    "explanation": "챕터 6-5에서 LangGraph는 interrupt() 함수를 제공해 그래프 실행을 인간 승인이 필요한 시점에 일시 중단하고 재개할 수 있게 한다고 설명합니다."
+  },
+  {
+    "id": "q11",
+    "question": "LLM-as-Judge의 '자기 강화 편향(Self-enhancement Bias)'이란?",
+    "options": [
+      "모델이 길수록 좋은 답이라고 평가하는 편향",
+      "첫 번째로 제시된 응답을 선호하는 편향",
+      "심판 모델과 동일 계열·회사 모델의 응답을 선호하는 경향",
+      "코드 응답을 자연어 응답보다 선호하는 경향"
+    ],
+    "answer": 2,
+    "explanation": "챕터 6-3에서 자기 강화 편향(Self-enhancement Bias)은 LLM 심판이 자신과 같은 모델 계열이 생성한 응답을 선호하는 경향이라고 설명합니다."
+  },
+  {
+    "id": "q12",
+    "question": "Human-in-the-Loop가 효과적으로 작동하기 위한 전제 조건은?",
+    "options": [
+      "빠른 네트워크 연결",
+      "행동의 멱등성(idempotency) 보장",
+      "24시간 인간 모니터링",
+      "특정 프레임워크(예: LangGraph) 사용"
+    ],
+    "answer": 1,
+    "explanation": "챕터 6-5에서 Human-in-the-Loop가 중간에 개입하고 재개할 수 있으려면, 이미 실행된 행동이 다시 실행되더라도 동일한 결과를 보장하는 멱등성(idempotency)이 전제 조건이라고 설명합니다."
+  },
+  {
+    "id": "q13",
+    "question": "SWE-agent와 Codex가 공통으로 사용하는 루프 제어 메커니즘은?",
+    "options": [
+      "LLM-as-Judge 평가",
+      "테스트 스위트 통과 여부를 종료 조건으로 사용하는 테스트 주도 루프",
+      "인간 승인 게이트",
+      "Self-Consistency 투표"
+    ],
+    "answer": 1,
+    "explanation": "챕터 6-4에서 SWE-agent와 Codex 모두 테스트 결과를 결정론적 종료 조건으로 사용하는 테스트 주도 루프 방식을 채택했다고 설명합니다."
+  }
+]

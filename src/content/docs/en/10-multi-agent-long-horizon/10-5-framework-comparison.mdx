@@ -1,0 +1,125 @@
+---
+title: "Framework Comparison: LangGraph, Agents SDK, CrewAI, AutoGen, smolagents"
+description: Compare the design philosophies, control-flow models, state management approaches, and production readiness of five major agent frameworks to establish clear selection criteria.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Describe the core design paradigm of each of LangGraph, Agents SDK, CrewAI, AutoGen, and smolagents"
+  - "Compare how each framework handles multi-agent collaboration and state management"
+  - "Apply selection criteria to choose the right framework for a given task profile"
+prerequisites:
+  - "10-1-orchestrator-worker-production"
+estimated_minutes: 36
+references:
+  - title: "LangGraph — Documentation"
+    url: "https://langchain-ai.github.io/langgraph/"
+    accessed: "2026-06-30"
+  - title: "OpenAI Agents SDK — Documentation"
+    url: "https://openai.github.io/openai-agents-python/"
+    accessed: "2026-06-30"
+  - title: "OpenAI — New tools for building agents (Agents SDK)"
+    url: "https://openai.com/index/new-tools-for-building-agents/"
+    accessed: "2026-06-30"
+---
+
+## Why Framework Choice Matters — and When to Be Cautious
+
+An agent framework is a tool. A good one makes hard tasks manageable; the wrong one means fighting the framework rather than building the product. As Anthropic's guidance puts it: start as simply as possible. Introducing a heavy framework for a loop that could be written directly adds abstraction layers that actually make debugging harder.
+
+This chapter compares five of the most widely used frameworks through the lens of their design philosophy.
+
+## LangGraph: Agents as State Machines
+
+**Core paradigm**: Agent loops are modeled as **directed graphs**. Nodes represent LLM calls or tool executions; edges represent state transitions. **Conditional edges** allow branching to different nodes based on the agent's decisions.
+
+**State management**: A shared state object defined as a `TypedDict` flows through the entire graph. Each node behaves like a pure function that reads and updates the state. A **checkpointer** saves state after every node execution, enabling rollback and restart.
+
+**Interrupt mechanism**: LangGraph provides an `interrupt()` call that pauses graph execution at a specific node to await human approval. This is the concrete implementation of the human-in-the-loop pattern from chapter 6-5.
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│             LangGraph Graph Structure Example                │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  START ──→ [Plan] ──→ [Execute] ──→ [Verify]               │
+│                            │              │                 │
+│                            │         pass ▼    fail        │
+│                            │       [Done]   ──→ [Retry]    │
+│                            │                      │        │
+│                            └──────────────────────┘        │
+│               (conditional edge: replan or retry)          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Best fit**: Complex branching logic, clearly defined state transitions, long-running workflows that need checkpointing, systems where production reliability is paramount.
+
+## OpenAI Agents SDK: Minimal Primitives Around Handoff
+
+**Core paradigm**: A minimal abstraction of three primitives — **Agent, Handoff, Guardrail** — covered in detail in chapter 10-2. The default collaboration model is handoff: an agent passes control directly to a peer.
+
+**State management**: Shared data flows across an execution via a context object. Rather than defining explicit state with a graph structure as LangGraph does, the agent's conversation context naturally represents state.
+
+**Guardrail**: A layer that validates agent inputs and outputs in parallel with model execution. Because Guardrails operate deterministically outside model inference, they can enforce safety constraints that the model cannot reason around.
+
+**Best fit**: Agent collections with clear specialization boundaries, linear delegation chains, Python-first teams, rapid prototyping.
+
+## CrewAI: Role-Based Team Collaboration
+
+**Core paradigm**: Agents are defined as team members with a **role**, **goal**, and **backstory**. Agents collaborate through a sequence of **tasks**. The conceptual frame is explicit: modeling human team structures with LLM agents.
+
+**Execution modes**: Supports `sequential` (one agent completes before the next begins) and `hierarchical` (a manager agent assigns tasks).
+
+**Best fit**: Business processes with clearly defined roles, configurations that need to be accessible to non-developers, use cases where the team metaphor maps naturally onto the domain.
+
+## AutoGen: Conversation-Based Multi-Agent Collaboration
+
+**Core paradigm**: Agents collaborate by **exchanging messages** as if in a conversation. Developed by Microsoft Research, the basic pattern is a `UserProxyAgent` and `AssistantAgent` in dialogue, with a built-in code execution loop that shares results through the conversation.
+
+**Group chat**: Supports patterns where multiple agents exchange messages in a single "chat room," with a `GroupChatManager` selecting the next speaker.
+
+**Best fit**: Research and experimental multi-agent interactions, tasks centered on code execution, debugging environments where agent-to-agent dialogue should be directly observable in natural language.
+
+## smolagents: CodeAct and Minimal Footprint
+
+**Core paradigm**: **CodeAct** — rather than calling tools via JSON, **the agent writes and executes Python code directly**. Code is the action. Complex tool chaining that would require several sequential JSON calls can be expressed in a single block of code.
+
+Developed by Hugging Face with lightweight design and minimal dependencies as core principles. Strong support for local and open-source models.
+
+**Best fit**: Code execution agents, open-source or local model usage, environments where minimal dependencies are important, research prototyping.
+
+## Framework Comparison Table
+
+| Criterion | LangGraph | Agents SDK | CrewAI | AutoGen | smolagents |
+|---|---|---|---|---|---|
+| Core abstraction | state graph | Agent/Handoff | Role/Task | agent conversation | CodeAct |
+| Control flow | explicit graph | handoff chain | sequential/hierarchical | conversation-based | code execution |
+| State management | TypedDict + checkpointer | context object | task output passing | message history | code variables |
+| Checkpointing | built-in (SQLite/Redis) | not built-in | not built-in | not built-in | not built-in |
+| Human-in-the-loop | `interrupt()` built-in | Guardrail | manual | UserProxy | manual |
+| Model providers | LLM-agnostic | OpenAI-first | broad | broad | open-source strength |
+| Learning curve | medium–high | low | low | low | low |
+| Production maturity | high | high | medium | medium | low |
+
+## Selection Criteria
+
+No framework is optimal for every situation. The following questions guide the choice.
+
+**Do you need complex branching logic?** → LangGraph. Conditional edges and an explicit state graph express complex control flows clearly.
+
+**Is handoff-based specialization the core model?** → Agents SDK. You can start quickly with minimal primitives.
+
+**Do domain experts need to compose agents?** → CrewAI. The role-and-goal configuration interface is accessible to non-developers.
+
+**Do you need to observe inter-agent dialogue in natural language?** → AutoGen. Conversation logs make system behavior intuitively visible.
+
+**Are you using open-source models or is code execution central?** → smolagents. The CodeAct paradigm and lightweight design are its strengths.
+
+**Does production require verified checkpointing and rollback?** → LangGraph is currently the most mature solution.
+
+## Closing the Section
+
+This section examined how multi-agent systems move beyond the limits of single agents, and how that move creates new problems — time horizon, error compounding, meltdown. Frameworks each offer their own answers to these challenges. Selecting the right tool for a system's requirements is a core competency of a loop engineer: not any framework is always the answer, and sometimes no framework at all is the correct choice.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="10-multi-agent-long-horizon" lang="en" client:load />

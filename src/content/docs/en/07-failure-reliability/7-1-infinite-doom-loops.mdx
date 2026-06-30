@@ -1,0 +1,197 @@
+---
+title: "Infinite Loops and Doom Loops"
+description: Two pathological loop behaviors — loops that never stop and loops that repeat the same failure — and the defense strategies to contain them.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Distinguish between an infinite loop and a doom loop, and explain the root cause of each"
+  - "Implement the key defense mechanisms: hard cap, no-progress detection, and a stuck tool"
+  - "Articulate why every retry must use a different strategy than the previous attempt"
+prerequisites:
+  - "6-1-stopping-conditions"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+---
+
+## When the Loop Won't Stop
+
+Chapter 6-1 covered stopping conditions in theory. But when theory is poorly implemented — or when the unexpected happens — the loop simply does not stop. In agentic loops, runaway behavior splits into two distinct pathologies: the **infinite loop** and the **doom loop**.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│               Two Loop Pathologies Compared                      │
+├──────────────────────┬──────────────────────────────────────────┤
+│ Pathology            │ Characteristics                          │
+├──────────────────────┼──────────────────────────────────────────┤
+│ Infinite loop        │ No termination condition, or one that    │
+│                      │ can never be reached                     │
+│                      │ Example: missing max_iter, ignored       │
+│                      │ stop_reason                              │
+├──────────────────────┼──────────────────────────────────────────┤
+│ Doom loop            │ Termination is intended but the same     │
+│                      │ failure repeats forever                  │
+│                      │ Example: error → retry → same error →   │
+│                      │ retry → ...                              │
+└──────────────────────┴──────────────────────────────────────────┘
+```
+
+## Infinite Loops: No Exit
+
+Infinite loops arise from structural defects. Three causes are by far the most common.
+
+**First, missing termination conditions.** A `while True:` loop without a `break` condition, or a `max_iterations` cap that was simply forgotten, will run forever unless the model happens to declare `end_turn`. This looks like an obvious oversight, but it surfaces even in production-grade code.
+
+**Second, self-reinforcing patterns.** Some tool-call chains are structurally cyclic: the result of one call always supplies input for the next. For example, if a "analyze next file" tool always returns another file to analyze, the loop runs until the input list is exhausted — or until the context window fills up, whichever comes first.
+
+**Third, missing stop-signal handling.** If the harness never checks the API's `stop_reason` field, the loop can keep running even after the model has already declared `end_turn`. Misunderstanding the API response structure is the typical culprit.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+MAX_ITER = 50
+
+for iteration in range(MAX_ITER):
+    response = model.generate(messages, tools=tools)
+
+    if response.stop_reason == "end_turn":
+        break  # model declared completion; exit immediately
+
+    for call in response.tool_calls:
+        result = run_tool(call)
+        messages.append(tool_result(call.id, result))
+else:
+    # for-else: only executes when the loop exhausts MAX_ITER without break
+    raise RuntimeError(f"Loop reached the {MAX_ITER}-iteration hard cap")
+```
+
+Python's `for-else` idiom cleanly separates a normal exit (via `break`) from hitting the cap. The **hard cap** is the simplest and most reliable first line of defense: it simultaneously prevents cost explosions and infinite loops.
+
+## Doom Loops: Repeating the Same Failure
+
+Doom loops are more insidious. The loop is trying to make progress — or at least the model believes it is — but each iteration reproduces the same failure and achieves nothing new. Common patterns:
+
+- File write fails → "retry" → same permission error → "retry" → …
+- Test fails → patch code → different test fails → original test fails → …
+- API request times out → retry → timeout → retry → …
+
+The model burns tokens under the illusion of forward movement. The defining characteristic of a doom loop is that **each iteration's output is functionally identical to the previous one**.
+
+```text
+Doom Loop Detection Flow: no-progress check
+
+  Hash of iteration N output ─────┐
+                                   ├── identical? ──▶ stuck_count += 1
+  Hash of iteration N+1 output ───┘                       │
+                                                           ▼
+                                               stuck_count ≥ threshold?
+                                               ├── Yes ──▶ inject strategy-change message
+                                               └── No  ──▶ continue normally
+```
+
+## Implementing No-Progress Detection
+
+Hashing successive outputs and comparing them is the most practical doom-loop defense. Hash the text content of the model's response and compare it against the previous iteration.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+import hashlib
+
+def content_hash(response):
+    texts = [b.text for b in response.content if hasattr(b, "text")]
+    return hashlib.md5("".join(texts).encode()).hexdigest()
+
+prev_hash = None
+stuck_count = 0
+STUCK_THRESHOLD = 3
+
+for iteration in range(MAX_ITER):
+    response = model.generate(messages, tools=tools)
+
+    h = content_hash(response)
+    if h == prev_hash:
+        stuck_count += 1
+    else:
+        stuck_count = 0
+    prev_hash = h
+
+    if stuck_count >= STUCK_THRESHOLD:
+        messages.append(
+            system_message(
+                "Your previous approach has been repeating. "
+                "Try a completely different method. "
+                "If you are genuinely stuck, call the report_stuck tool."
+            )
+        )
+        stuck_count = 0
+
+    if response.stop_reason == "end_turn":
+        break
+```
+
+A key nuance: when a `stuck` state is detected, **injecting a strategy-change message** is often more effective than simply aborting the loop. Retrying the exact same action with the exact same inputs produces the exact same result. Every retry must be accompanied by a **different approach**. This connects directly to the crash-only design philosophy covered in chapter 7-4.
+
+## The Stuck Tool: Letting the Model Signal for Help
+
+Alongside harness-level no-progress detection, giving the model a special tool to declare "I am stuck" is an effective complementary mechanism.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+stuck_tool = {
+    "name": "report_stuck",
+    "description": (
+        "Call this when you have determined that no further progress is possible "
+        "with your current approach. Only use this after you have already tried "
+        "at least two different methods."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": "Summary of why you are stuck and what you have tried"
+            },
+            "suggested_pivot": {
+                "type": "string",
+                "description": "Another direction to try next (optional)"
+            }
+        },
+        "required": ["reason"]
+    }
+}
+```
+
+When the model calls `report_stuck`, the orchestrator or a human-in-the-loop gate receives the signal and can re-steer the strategy. This pattern — where the model recognizes its own limits and notifies the surrounding system — is explicitly recommended by Anthropic for long-running agent harnesses.
+
+## Priority Order for Defenses
+
+Anthropic's long-running agent guide emphasizes that **stopping early** when the loop has gone off-course is far cheaper than recovering after the fact. An infinite or doom loop running for dozens of iterations wastes cost, time, and precious context window space.
+
+```text
+Defense Priority (outermost to innermost)
+
+  ┌─────────────────────────────────────────┐
+  │  Layer 1 — Hard cap: set max_iterations │
+  │  ┌───────────────────────────────────┐  │
+  │  │  Layer 2 — No-progress: hash diff │  │
+  │  │  ┌─────────────────────────────┐  │  │
+  │  │  │  Layer 3 — Stuck tool:      │  │  │
+  │  │  │           model self-signal │  │  │
+  │  │  │  ┌───────────────────────┐  │  │  │
+  │  │  │  │  Layer 4 — Human gate │  │  │  │
+  │  │  │  └───────────────────────┘  │  │  │
+  │  │  └─────────────────────────────┘  │  │
+  │  └───────────────────────────────────┘  │
+  └─────────────────────────────────────────┘
+```
+
+The defense stack is most effective when it is simple. Layering hard cap → no-progress detection → stuck tool → human gate in that order catches the vast majority of loop pathologies early, before they become expensive.
+
+The next chapter examines two related failure modes: **error cascades**, where an early mistake poisons every downstream step, and **goal drift**, where the objective itself silently mutates as the loop progresses.

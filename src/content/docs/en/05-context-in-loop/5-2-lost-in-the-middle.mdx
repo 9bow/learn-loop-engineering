@@ -1,0 +1,113 @@
+---
+title: "Lost in the Middle: The U-Shaped Attention Curve"
+description: Empirical research on how LLMs use information in long contexts — and what the U-shaped attention curve means for loop design.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Explain the U-shaped attention curve and why information in the middle position is vulnerable"
+  - "Identify the specific ways the middle-position blind spot manifests during loop execution"
+  - "Apply context placement strategies that mitigate the middle blind spot"
+prerequisites:
+  - "5-1-attention-budget-context-rot"
+estimated_minutes: 28
+references:
+  - title: "Liu et al. — Lost in the Middle: How Language Models Use Long Contexts (arXiv:2307.03172)"
+    url: "https://arxiv.org/abs/2307.03172"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective context engineering for AI agents"
+    url: "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents"
+    accessed: "2026-06-30"
+---
+
+## The Illusion That a Bigger Window Means Equal Access
+
+The previous chapter introduced the concept of context rot as a theoretical degradation of reasoning quality. This chapter grounds one critical facet of that problem in empirical research. **Liu et al. (2024)**, published in TACL as "Lost in the Middle" (arXiv:2307.03172), systematically analyzed how LLMs use relevant information in long contexts.
+
+The researchers designed a question-answering task where the correct answer was hidden in one of twenty documents. The key variable was the **position of the answer document** — which slot among the twenty it occupied. The results were unambiguous. Accuracy was high when the answer appeared in the first or last document, and **dropped substantially when the answer was placed in the middle (positions 5–15)**. The researchers named this pattern the **U-shaped curve**.
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│         Lost in the Middle: U-Shaped Attention Curve      │
+│                                                          │
+│  Accuracy                                                │
+│  ▲                                                       │
+│  │ ██                                              ████ │
+│  │ ████                                        ████████ │
+│  │ ██████                              ████████████████ │
+│  │ █████████               ████████████████████████████ │
+│  │ ███████████████████████████████████████████████████ │
+│  └──────────────────────────────────────────────────▶   │
+│    Front (1)   Middle (10)    Rear (20)   Document pos. │
+│                                                          │
+│  → Accuracy is lowest at middle positions (U-shape)     │
+└──────────────────────────────────────────────────────────┘
+```
+
+## Why Is the Middle Vulnerable?
+
+Due to the characteristics of the LLM attention mechanism, models tend to concentrate strongly on tokens **near the beginning** (system prompt, initial instructions) and on the **most recent tokens** (just before current generation). Tokens that fall between these two endpoints receive comparatively lower attention weights. The paper characterizes this as "the middle of the context window being ineffectively utilized."
+
+This is not a simple "the model forgets the middle" memory problem. It is a structural property: the attention weight distribution forms non-uniformly based on position in the sequence.
+
+## How This Manifests in a Loop
+
+In an agentic loop, the U-shaped vulnerability surfaces in the following concrete ways.
+
+**Scenario 1: File read results get buried.** A code file or configuration file read early in the loop gets pushed down under subsequent tool results, ending up somewhere in the middle of the context window. When the model later needs to reference that file's content, it may fail to do so accurately and produce an incorrect answer.
+
+**Scenario 2: Critical constraints get diluted.** An important constraint like "never write to the production database" may be mentioned in the middle of the system prompt or only in an early conversation turn, and then get pushed back as the loop progresses. The risk that the model overlooks that constraint increases substantially.
+
+**Scenario 3: Multi-agent summary reports are lost.** When an orchestrator receives reports from multiple sub-agents in sequence, information from reports that arrive in the middle may not be fully incorporated at the final synthesis step.
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+def read_file_with_position_awareness(messages: list, filepath: str) -> list:
+    """
+    Position-aware file placement that accounts for U-shaped vulnerability.
+    Old file reads are replaced with summaries; the current version goes at the end.
+    """
+    file_content = read_tool(filepath)
+
+    # If the same file was read before, replace it with a summary (remove from middle)
+    messages = replace_old_file_reads(messages, filepath, summary_only=True)
+
+    # Append the current file content at the end (high-attention zone)
+    messages.append({
+        "role": "tool",
+        "content": f"[Current content of {filepath}]\n{file_content}"
+    })
+    return messages
+
+
+def replace_old_file_reads(messages: list, filepath: str, summary_only: bool) -> list:
+    """Replace prior reads of the same file with a single summary line."""
+    result = []
+    for msg in messages:
+        if is_file_read_result(msg, filepath):
+            if summary_only:
+                result.append({"role": "tool",
+                                "content": f"[{filepath} — earlier read replaced by summary]"})
+        else:
+            result.append(msg)
+    return result
+```
+
+## Mitigation Strategies
+
+The U-shaped curve cannot be eliminated, but its impact can be reduced through loop design.
+
+| Strategy | Description | Effect |
+|----------|-------------|--------|
+| **Fresh reload** | Re-read needed files and place them at the end of the context | Bypasses the middle blind spot |
+| **Front-load key facts** | Fix constraints and immutable goals in the system prompt | Exploits the high-attention front zone |
+| **Compress the middle** | Summarize or delete stale tool results to shrink the middle zone | Reduces the size of the vulnerable region itself |
+| **Sub-agent isolation** | Each agent in a multi-agent system holds its own context | Prevents middle accumulation altogether |
+
+The middle blind spot becomes a practical risk as loops grow longer. Information the model "should know because it's in the context window" may in reality not be properly referenced at all. In coding loops that repeatedly follow a read-modify-verify pattern, if the codebase structure learned in early iterations gets locked in the middle, the model will waste additional tool calls to re-learn that structure — or make incorrect assumptions.
+
+## How This Chapter Connects to What Follows
+
+The U-shaped vulnerability is best addressed not in isolation but as part of a comprehensive context management strategy. Chapter 5-3 (compaction) covers how to periodically clean the middle zone, and Chapter 5-5 (JIT retrieval) covers how to pull exactly what is needed at exactly the right moment, before it can get buried. These two strategies offer the most direct mitigation of the U-shaped curve problem.
+
+The "Lost in the Middle" paper demonstrates that the race to increase context window size is not purely a numbers game. Expanding the window matters — but so does **how information is arranged inside that window**. Context placement design is as consequential as context window size for agent performance.

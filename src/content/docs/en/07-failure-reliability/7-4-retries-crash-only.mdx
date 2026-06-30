@@ -1,0 +1,168 @@
+---
+title: "Retry Strategies and Crash-Only Design"
+description: Classifying errors as transient or permanent, combining exponential backoff with jitter, and applying crash-only design to build resilient agentic loops.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Explain the criteria for distinguishing transient from permanent errors"
+  - "Implement retry logic combining exponential backoff and jitter"
+  - "Understand crash-only design and its implications for agentic loops"
+prerequisites:
+  - "7-3-checkpointing-idempotency"
+estimated_minutes: 30
+references:
+  - title: "LangGraph Documentation"
+    url: "https://langchain-ai.github.io/langgraph/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## Two Kinds of Error
+
+Errors in an agentic loop have fundamentally different characters. Some resolve on their own if you wait a moment; others will never resolve no matter how long you wait. Failing to distinguish between them makes retry logic counterproductive.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                    Error Classification                       │
+├─────────────────────┬────────────────────────────────────────┤
+│ Transient           │ Permanent                              │
+├─────────────────────┼────────────────────────────────────────┤
+│ Network timeout     │ Invalid API key                        │
+│ Momentary overload  │ Non-existent file path                 │
+│ Temporary rate cap  │ Schema mismatch (code bug)             │
+│ HTTP 503 / 429      │ Unauthorized action (403)              │
+│                     │ Malformed arguments (400)              │
+└─────────────────────┴────────────────────────────────────────┘
+```
+
+**Transient errors** benefit from retrying. **Permanent errors** do not — retrying them produces the same result and, worse, slides the loop into the doom-loop pattern described in chapter 7-1.
+
+## Exponential Backoff with Jitter
+
+Retrying transient errors should not mean **immediate retry** — it should mean **retrying after progressively longer waits**. When multiple agents simultaneously access the same API, immediate retries from all of them compound the load and interfere with server recovery. The solution is **exponential backoff** combined with **jitter** (randomization).
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+import time
+import random
+
+def with_retry(fn, max_retries=3, base_delay=1.0, max_delay=60.0):
+    """
+    Exponential backoff + full jitter retry wrapper.
+    Retries only transient errors; propagates permanent errors immediately.
+    """
+    last_error = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except PermanentError:
+            raise  # no retry; propagate immediately
+        except TransientError as e:
+            last_error = e
+            if attempt == max_retries:
+                break
+
+            # Full jitter: uniform in [0, min(cap, base * 2^attempt)]
+            delay = random.uniform(0, min(max_delay, base_delay * (2 ** attempt)))
+            time.sleep(delay)
+
+    raise MaxRetriesExceeded(f"Failed after {max_retries} retries") from last_error
+```
+
+Jitter prevents the **thundering herd** problem: without it, multiple clients using pure exponential backoff all retry at the same moments, recreating the exact overload they are waiting for. Adding randomization spreads retries out in time.
+
+## Injecting Prior Errors into Retry Context
+
+Agentic loop retries require something that ordinary distributed-system retries do not: the model must **know what failed on the previous attempt** in order to try a different approach. Without that context, the model repeats the same action and produces the same failure.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+
+def build_retry_context(original_messages, error_history):
+    """
+    Inject the failure history into context on retry,
+    prompting the model to adopt a different strategy.
+    """
+    if not error_history:
+        return original_messages
+
+    error_summary = "\n".join([
+        f"- Attempt {i+1}: {err['action']} → {err['error']}"
+        for i, err in enumerate(error_history)
+    ])
+
+    retry_note = {
+        "role": "user",
+        "content": (
+            f"The following approaches have already failed:\n{error_summary}\n\n"
+            "Please try a completely different method. "
+            "Do not repeat any of the approaches listed above."
+        )
+    }
+    return original_messages + [retry_note]
+```
+
+This pattern connects back to the doom-loop defense in chapter 7-1. Explicitly surfacing prior failures is far more effective than simply re-executing the loop.
+
+## Crash-Only Design
+
+**Crash-only design** is a philosophy from distributed systems research that carries a counterintuitive premise: do not distinguish between "normal shutdown" and "abnormal shutdown." **Every termination is a crash, and the only recovery path is restart.**
+
+The core principles of crash-only design:
+
+1. **Do not write graceful-shutdown code.** All state must always be persisted, so that an abrupt termination at any point causes no data loss.
+2. **There is exactly one recovery path — restart.** Focus all engineering effort on making that one path robust.
+3. **Every operation must be idempotent.** If an operation is re-executed after a restart, the result must be the same as if it ran only once.
+
+Applying this philosophy to agentic loops:
+
+```text
+Crash-Only Agentic Loop Design
+
+  Traditional design:
+    Normal path ──▶ graceful shutdown
+    Error path  ──▶ error handler ──▶ recovery attempt ──▶ graceful shutdown?
+
+  Crash-only design:
+    All paths ──▶ crash allowed ──▶ restart ──▶ resume from last checkpoint
+                       ↑
+               idempotency + checkpointing make this safe
+```
+
+Instead of writing complex recovery code for every possible failure scenario, you invest that energy in ensuring the system is **always in a restartable state**. Checkpointing and idempotency from chapter 7-3 are the technical foundations that make crash-only design viable.
+
+## Choosing a Retry Strategy in Practice
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│               Retry Decision Flow                             │
+├──────────────────────────────────────────────────────────────┤
+│  Error occurs                                                 │
+│      │                                                        │
+│      ▼                                                        │
+│  Permanent error? ──▶ Yes ──▶ propagate immediately           │
+│      │ No                           (no retry)               │
+│      ▼                                                        │
+│  Retry count exceeded? ──▶ Yes ──▶ save checkpoint, abort    │
+│      │ No                                                     │
+│      ▼                                                        │
+│  Same error repeating? ──▶ Yes ──▶ change strategy, retry    │
+│      │ No                                                     │
+│      ▼                                                        │
+│  Backoff with jitter, then retry                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+LangGraph supports per-node retry policies: attaching a `retry_policy` to a node applies a consistent retry strategy at the graph level while still allowing different thresholds per node. This lets you apply uniform retry semantics across the whole loop without coupling every node implementation to retry logic.
+
+## Acknowledging the Limits of Retrying
+
+Retries are a tool, not a cure-all. A problem that persists beyond the retry limit requires fixing the root cause. In agentic loops, excessive retries increase cost without resolving the underlying issue — and they obscure the real problem.
+
+The goal of a retry strategy is to **handle transient failures transparently while surfacing permanent problems quickly**. The next chapter introduces a further defensive layer: **sandboxing**, which limits how far any failure — however caused — can propagate.

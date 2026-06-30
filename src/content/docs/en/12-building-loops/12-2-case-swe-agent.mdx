@@ -1,0 +1,121 @@
+---
+title: "Case Study: SWE-agent and Coding Agents"
+description: Analyzing how SWE-agent's ACI (Agent-Computer Interface) design and edit-test-fix loop contributed to its SWE-bench performance.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Explain the concept of ACI (Agent-Computer Interface) and its role in coding agents"
+  - "Describe SWE-agent's edit-test-fix loop structure and bounded command interface"
+  - "Apply ACI design principles to your own tool design"
+prerequisites:
+  - "12-1-case-claude-code-codex"
+estimated_minutes: 28
+references:
+  - title: "Yang et al. — SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering (arXiv:2405.15793)"
+    url: "https://arxiv.org/abs/2405.15793"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Writing effective tools for AI agents"
+    url: "https://www.anthropic.com/engineering/writing-tools-for-agents"
+    accessed: "2026-06-30"
+---
+
+## SWE-bench: The Reference Benchmark for Coding Agents
+
+SWE-bench is a benchmark where agents must resolve real GitHub repository issues — not synthetic algorithm puzzles but actual bug fixes, feature additions, and test writing from real open-source projects. Success is determined by whether the **actual test suite passes**: a clear, mechanically verifiable criterion.
+
+SWE-agent (Yang et al., NeurIPS 2024) is one of the early coding agents to record notable performance on this benchmark. The key to its success was an interface designed specifically for coding agents: the **ACI (Agent-Computer Interface)**.
+
+## ACI: The Interface Determines Performance
+
+Human developers interact with computers through UI/UX designed for IDE, terminal, and browser use. Giving agents the same interfaces creates problems. Agents do not see pixels; they waste context processing thousands of lines of terminal output; they are optimized for text commands, not GUI clicks.
+
+SWE-agent's core insight is that agents need an **interface purpose-built for agents**.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│           Generic Shell Interface vs SWE-agent ACI              │
+└─────────────────────────────────────────────────────────────────┘
+
+Generic shell (disadvantageous for agents):
+  Agent:  cat large_file.py
+  Output: (all 3000 lines)         ← wastes context
+
+  Agent:  grep -n "def main" *.py
+  Output: (hundreds of grep lines) ← parsing burden
+
+SWE-agent ACI (agent-optimized):
+  Agent:  open large_file.py 100-150
+  Output: (only lines 100-150 + current position marker)
+
+  Agent:  find_function main
+  Output: {file: main.py, lines: 42-75, sig: def main(args) → ...}
+```
+
+## SWE-agent's ACI Design Principles
+
+SWE-agent provides a custom command set optimized for agents rather than raw bash commands.
+
+**1. Bounded file viewer**: Instead of dumping entire files, the viewer provides chunk-sized output with current window position and context. The agent navigates with "next page" and "previous page". This limits context waste while letting the agent track its position within a file.
+
+**2. Search-first navigation**: When locating files in a large repository, high-level commands like `find_file`, `search_dir`, and `find_function` are provided. No need to wrestle with the complex flags of low-level `find`.
+
+**3. Atomic edit tool**: File edits use an `edit <start>:<end>` command that replaces only a specific line range. Surgical modifications are possible without rewriting entire files. After each edit, the modified section is automatically displayed so the agent can immediately verify correctness.
+
+**4. Actionable error messages**: Instead of raw bash error messages, the ACI returns structured errors containing the information the agent needs to decide its next action.
+
+## SWE-agent's Edit-Test-Fix Loop
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│               SWE-agent Edit-Test-Fix Loop                       │
+└─────────────────────────────────────────────────────────────────┘
+
+  GitHub issue + repository code
+          │
+          ▼
+  ① Explore
+  find_file, search_dir to locate relevant code
+  Read related files with open command
+          │
+          ▼
+  ② Understand
+  Identify bug cause or feature to add
+  Confirm which code needs modification
+          │
+          ▼
+  ③ Edit
+  Modify code with edit command
+  Immediately review modification result
+          │
+          ▼
+  ④ Test
+  Run python -m pytest [relevant tests]
+  (isolated execution in SWE-ReX sandbox)
+          │
+          ▼
+  ⑤ Evaluate result
+  ├── Pass ──▶ run additional tests, declare done
+  └── Fail ──▶ analyze error → return to ③ Edit
+```
+
+**SWE-ReX** in this loop is the sandbox environment that runs tests safely. Each agent session executes in an independent sandbox so that test runs do not affect other sessions or the host system.
+
+## Tool Design Principles from the ACI Experience
+
+The tool design principles derived from SWE-agent's experience apply to any agentic system.
+
+| Principle | Poor Example | Good Example |
+|---|---|---|
+| Limit output size | `cat /path/to/file` (full output) | `view /path/to/file 1-50` (range specified) |
+| Information density | Raw grep output | Structured return with filename, line number, context |
+| Atomic actions | Replace entire file | Edit a specific line range |
+| Error messages | "Error: command failed" | "Indentation error at line 42, expected: 4 spaces, actual: 2 spaces" |
+| Feedback loop | Separate confirmation step needed after edit | Modified section auto-displayed immediately after edit |
+
+## The Current Coding Agent Ecosystem
+
+SWE-bench has become a yardstick for coding agent progress. When SWE-agent was introduced, it recorded 12.5%; since then, better models, more refined ACIs, and smarter loop strategies have pushed top systems significantly higher. Crucially, **ACI design and loop structure contribute to performance as much as model scale**.
+
+SWE-agent's lesson is clear. Giving an agent the right tools and interface may matter as much as making the model larger. Designing **good tools for agents** is one of the core competencies of a loop engineer, and SWE-agent demonstrates why.
+
+The next chapter examines a completely different approach — the Ralph technique. Instead of a sophisticated ACI, it achieves remarkable results from the simplest possible loop.

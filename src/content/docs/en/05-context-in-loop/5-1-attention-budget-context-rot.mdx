@@ -1,0 +1,121 @@
+---
+title: "Attention Budget and Context Rot"
+description: Why LLM performance degrades as the context grows longer — an analysis through the lens of attention budget and context rot.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Explain the implications of self-attention's O(n²) cost structure for long contexts"
+  - "Understand how context rot accumulates inside an agentic loop"
+  - "Derive context design principles from the attention budget perspective"
+prerequisites:
+  - "2-1-observe-reason-act-evaluate"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Effective context engineering for AI agents"
+    url: "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — How we built our multi-agent research system"
+    url: "https://www.anthropic.com/engineering/multi-agent-research-system"
+    accessed: "2026-06-30"
+---
+
+## Context Is Not Infinite
+
+As an agentic loop progresses, the context window grows thicker with every iteration. Observations, tool call results, and intermediate model responses pile up turn by turn. With models now supporting context windows of 128k or even 200k tokens, it is tempting to feel safe: "a bigger window means fewer worries." That comfort is dangerous.
+
+The core mechanism of an LLM — **self-attention** — has a computational complexity of **O(n²)** with respect to the number of input tokens n. Double the token count and the attention matrix computation quadruples; memory usage quadruples as well. Modern models mitigate this significantly with techniques like Flash Attention and sparse attention, but the fundamental quadratic scaling property does not change. More important than raw compute cost is a subtler point: a longer context does not mean the model uses **all of it equally well**.
+
+## What Is the Attention Budget?
+
+The **attention budget** refers to the total amount of information a model can effectively focus on during a single inference pass. There is a meaningful distinction between the **capacity** of the context window (how many tokens it can hold) and the **effective range** of what the model reliably references. Research consistently shows that attention is not distributed uniformly across the full window. It tends to concentrate near the most recent tokens and near the very beginning of the context, leaving the middle relatively underweighted.
+
+Designing a context with this uneven distribution in mind is the essence of attention budget engineering. Placing critical instructions or key facts somewhere in the middle of the context window risks the model failing to reference them properly when it matters.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│            Context Window and Effective Attention             │
+├──────────────┬──────────────────────────┬────────────────────┤
+│  Position    │  Attention Strength       │  Recommended Use   │
+├──────────────┼──────────────────────────┼────────────────────┤
+│  Front (↑)  │  ████████████  (high)    │  System prompt,    │
+│             │                           │  goal spec,        │
+│             │                           │  tool definitions  │
+├──────────────┼──────────────────────────┼────────────────────┤
+│  Middle (→) │  ███           (low)     │  Stale tool results│
+│             │                           │  → compaction zone │
+├──────────────┼──────────────────────────┼────────────────────┤
+│  Rear (↓)   │  ███████████   (high)   │  Latest observation│
+│             │                           │  current step      │
+│             │                           │  tool results      │
+└──────────────┴──────────────────────────┴────────────────────┘
+```
+
+This structure yields the basic principles for loop design: anchor the system prompt and task goal at the front, expose the most recent tool results at the rear, and periodically compress old content that has accumulated in the middle.
+
+## Context Rot: The Chronic Disease of Loops
+
+**Context rot** is the gradual degradation of the model's effective reasoning ability as the context window fills with stale information, duplicate content, and already-resolved error messages over the course of a loop. It is analogous to how dead comments and obsolete code accumulate in a software project until the codebase becomes hard to understand. A longer context does not guarantee access to more useful information — it can actually bury the important signal in noise.
+
+Context rot accumulates through several distinct channels.
+
+**First, unlimited accumulation of tool results.** File reads, API responses, and test output are appended verbatim after each iteration. A file read twenty times produces twenty identical tool-result blocks that fill the context.
+
+**Second, repeated error messages.** The same compilation error or test failure appears across multiple iterations. The model wastes reasoning capacity re-reading and re-processing an error it already handled once.
+
+**Third, dilution of initial instructions.** When the goal description from the start of the loop gets pushed tens of thousands of tokens back, the model loses sight of the original mission and drifts toward local sub-problems — a failure mode known as **goal drift**.
+
+**Fourth, meta-reasoning overload.** A significant portion of the model's inference capacity gets consumed trying to reconstruct "what have I done so far," leaving less capacity for actual task work.
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+COMPACTION_THRESHOLD = 80_000  # token count threshold (example value)
+
+def run_loop(task: str, tools: list, max_iters: int = 30):
+    messages = [{"role": "user", "content": task}]
+
+    for i in range(max_iters):
+        token_count = estimate_tokens(messages)
+
+        # Guard against context rot: compact when threshold is reached
+        if token_count > COMPACTION_THRESHOLD:
+            messages = compact(messages)
+
+        response = model.generate(messages, tools=tools)
+
+        if response.stop_reason == "end_turn":
+            return response.content
+
+        for call in response.tool_calls:
+            result = run_tool(call)
+            # Limit individual tool result size: large files get truncated
+            messages.append({
+                "role": "tool",
+                "content": truncate_if_large(result, max_chars=4000)
+            })
+
+    raise RuntimeError("max_iters exceeded: loop force-stopped")
+```
+
+## Separating Static and Dynamic Context
+
+Anthropic's context engineering guide recommends designing the context as two distinct zones: a **static** part and a **dynamic** part.
+
+| Zone | Contents | Position | Change Frequency |
+|------|----------|----------|-----------------|
+| Static | System prompt, tool definitions, task spec | Front (fixed) | Immutable within loop |
+| Dynamic | Observations, tool results, model responses | Rear (accumulating) | Every iteration |
+| Compaction target | Stale dynamic content | Middle zone | When threshold hit |
+
+The static portion is also the primary target for **prompt caching**. Caching the unchanging front section dramatically reduces the cost of repeated calls (cache reads cost roughly 10% of the base input price).
+
+Anthropic's multi-agent research system adopted an approach where each sub-agent operates in **its own isolated context window**, so the orchestrator's context is never contaminated by sub-agent execution details. Sub-agents return only a summary when they complete their work. This isolation has the added benefit of distributing the attention budget across multiple agents.
+
+## What This Means for Loop Engineers
+
+Context management is not merely a cost optimization. In long-running agents that iterate dozens or hundreds of times, attention budget design is a **fundamental prerequisite for task completion**. A loop halted by a token limit, or a model that has forgotten its original goal under the weight of context rot and is racing in the wrong direction — these are failure modes that every loop engineer must anticipate and prevent proactively.
+
+The chapters that follow translate this problem into concrete strategies. Chapter 5-2 confirms, through empirical research, why information placed in the middle position is especially vulnerable. Chapter 5-3 covers compaction strategies. Chapter 5-4 examines the loop memory hierarchy. Chapter 5-5 explores JIT retrieval as a way to maintain fresh context throughout a long-running loop.

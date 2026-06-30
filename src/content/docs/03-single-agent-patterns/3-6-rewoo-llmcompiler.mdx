@@ -1,0 +1,165 @@
+---
+title: "ReWOO와 LLMCompiler: 효율 지향 루프"
+description: 도구 호출 전에 전체 실행 계획을 수립해 토큰 낭비를 제거하는 ReWOO와, 의존성 그래프 기반 병렬 실행으로 지연을 단축하는 LLMCompiler를 살펴봅니다.
+sidebar:
+  order: 6
+learning_objectives:
+  - "ReWOO의 Planner-Worker-Solver 세 단계가 토큰 효율을 높이는 원리를 설명할 수 있다"
+  - "LLMCompiler의 DAG 실행 계획이 병렬화를 통해 지연을 단축하는 방식을 이해한다"
+  - "ReWOO와 LLMCompiler의 검증된 성능 수치를 인용하고 각각의 적용 조건을 판단할 수 있다"
+prerequisites:
+  - "3-1-react"
+estimated_minutes: 32
+references:
+  - title: "Xu et al. — ReWOO: Decoupling Reasoning from Observations for Efficient Augmented Language Models (arXiv:2305.18323)"
+    url: "https://arxiv.org/abs/2305.18323"
+    accessed: "2026-06-30"
+  - title: "Kim et al. — An LLM Compiler for Parallel Function Calling (arXiv:2312.04511)"
+    url: "https://arxiv.org/abs/2312.04511"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## 비용 최적화라는 다른 방향
+
+이전 챕터들은 ReAct의 기능을 **확장**하거나 **품질을 높이는** 방향을 탐구했다. Reflexion은 실패에서 배우고, Self-Refine은 반복 개선하고, ToT/GoT는 탐색 공간을 넓혔다. 그러나 이 모든 접근은 LLM 호출 횟수를 늘린다.
+
+ReWOO와 LLMCompiler는 정반대 방향을 택한다. 어떻게 하면 **더 적은 토큰과 더 낮은 지연**으로 같거나 더 좋은 결과를 얻을 수 있는가? 이 질문에서 출발한 두 패턴은 "도구 호출 전 사전 계획"이라는 공통 핵심을 공유하면서도, 각각 다른 비효율을 공략한다.
+
+## ReWOO: 관찰 없이 계획하기
+
+ReAct의 가장 큰 토큰 낭비 원인 중 하나는 **인터리브드(interleaved) 구조**다. Thought, Action, Observation이 매 이터레이션마다 컨텍스트에 쌓인다. 모든 Thought는 이전 Observation을 포함한 전체 컨텍스트를 읽어야 한다. 도구 결과가 길수록 컨텍스트가 빠르게 팽창하고, 그 비용이 모든 후속 LLM 호출로 전파된다.
+
+ReWOO(Xu et al., arXiv:2305.18323)는 이 문제를 **Planner 단계에서 모든 도구 호출을 미리 계획**함으로써 해결한다. 실제 도구 결과(Observation)를 보기 전에 전체 실행 계획을 수립하고, 그 계획에 따라 도구를 실행한 뒤, 마지막에 결과를 한꺼번에 종합한다.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                  ReWOO 세 단계                                │
+│                                                              │
+│  ① Planner                                                   │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  입력: 태스크                                         │   │
+│  │  출력: 실행 계획 (도구 + 파라미터 + 의존성 명시)        │   │
+│  │  #E1 = search("파리 에펠탑 높이")                      │   │
+│  │  #E2 = search("뉴욕 엠파이어스테이트 높이")             │   │
+│  │  #E3 = calculator("#E1 - #E2")   ← E1,E2 의존         │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                          ▼                                   │
+│  ② Worker (관찰 없이 도구만 실행)                             │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  E1 실행 → "330m"                                    │   │
+│  │  E2 실행 → "443m"                                    │   │
+│  │  E3 실행 → "330 - 443 = -113"                        │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                          ▼                                   │
+│  ③ Solver                                                    │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  입력: 태스크 + (E1=330m, E2=443m, E3=-113m)         │   │
+│  │  출력: "에펠탑은 엠파이어스테이트보다 113m 낮습니다."   │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Planner는 도구 결과를 모른다. 그래서 결과에 대한 참조를 `#E1`, `#E2` 같은 **변수 플레이스홀더**로 작성한다. Worker가 실제 값을 채우면 Solver가 최종 답변을 생성한다. Planner는 Observation 없이 실행되므로 컨텍스트에 도구 결과가 쌓이지 않는다.
+
+ReWOO 논문은 HotpotQA 벤치마크에서 ReAct 대비 **토큰 효율 5배**, 성능 **+4%** 를 달성했다고 보고했다. 토큰 절감 폭이 성능 향상폭보다 훨씬 크다는 점이 이 패턴의 핵심 가치를 잘 보여준다.
+
+### Python 구현 예시
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+import re
+
+def rewoo(model, tools: dict, task: str) -> str:
+    # ① Planner: 도구 결과 없이 전체 계획 수립
+    plan_prompt = (
+        f"태스크: {task}\n\n"
+        "사용 가능한 도구: " + ", ".join(tools.keys()) + "\n\n"
+        "전체 실행 계획을 작성하라. 각 단계는 '#En = tool_name(args)' 형식으로.\n"
+        "이전 결과를 참조할 때는 #En 변수를 사용하라."
+    )
+    plan_text = model.generate([{"role": "user", "content": plan_prompt}]).text
+
+    # 계획 파싱: "#E1 = search(...)" 형태 추출
+    steps = re.findall(r"(#E\d+)\s*=\s*(\w+)\((.+?)\)", plan_text)
+
+    # ② Worker: 순서대로 실행, 변수 치환
+    evidence: dict[str, str] = {}
+    for var, tool_name, args_str in steps:
+        # 이전 변수 값으로 치환
+        for k, v in evidence.items():
+            args_str = args_str.replace(k, v)
+        fn = tools.get(tool_name)
+        if fn:
+            try:
+                evidence[var] = str(fn(args_str))
+            except Exception as e:
+                evidence[var] = f"ERROR: {e}"
+        else:
+            evidence[var] = f"ERROR: 도구 '{tool_name}' 없음"
+
+    # ③ Solver: 태스크 + 증거로 최종 답변
+    evidence_text = "\n".join(f"{k}: {v}" for k, v in evidence.items())
+    solve_prompt = (
+        f"태스크: {task}\n\n수집된 증거:\n{evidence_text}\n\n"
+        "위 증거를 바탕으로 최종 답변을 작성하라."
+    )
+    return model.generate([{"role": "user", "content": solve_prompt}]).text
+```
+
+## LLMCompiler: 병렬 함수 호출 최적화
+
+ReWOO가 "토큰 낭비"를 공략한다면, LLMCompiler(Kim et al., ICML 2024, arXiv:2312.04511)는 **실행 지연(latency)**을 공략한다. ReAct는 도구 호출을 순차(sequential)로 수행한다. Thought1 → Action1 → Observation1 → Thought2 → Action2 순으로 진행하기 때문에, 서로 의존하지 않는 두 도구 호출도 직렬로 기다린다.
+
+LLMCompiler는 이를 프로그래밍 언어 컴파일러에서 영감을 받은 아이디어로 해결한다. 컴파일러가 데이터 의존성 그래프(DAG)를 분석해 독립적인 명령을 병렬로 실행하듯이, LLMCompiler는 도구 호출 간 의존성을 분석하고 가능한 것을 병렬로 실행한다.
+
+```text
+┌───────────────────────────────────────────────────────────────┐
+│            LLMCompiler 실행 DAG 예시                           │
+│                                                               │
+│  태스크: "A 주가, B 주가, 두 회사 CEO 이름을 찾아 비교하라"      │
+│                                                               │
+│  ① Planner (DAG 생성)                                         │
+│                                                               │
+│      ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
+│      │ E1: A주가   │  │ E2: B주가   │  │ E3: A CEO   │       │
+│      │ search("A") │  │ search("B") │  │ search("A") │       │
+│      └──────┬──────┘  └──────┬──────┘  └──────┬──────┘       │
+│             │                │                │               │
+│             └────────────────┴────────────────┘               │
+│                              ▼                                │
+│                   ┌─────────────────────┐                     │
+│                   │ E4: 비교 종합        │                     │
+│                   │ (E1, E2, E3 의존)   │                     │
+│                   └──────────┬──────────┘                     │
+│                              ▼                                │
+│  ② Executor (병렬 실행)                                        │
+│     E1, E2, E3 동시 실행 ──→ 결과 수집 ──→ E4 실행            │
+│                                                               │
+│  ③ Joiner: 최종 답변 생성 또는 추가 계획 요청                  │
+└───────────────────────────────────────────────────────────────┘
+```
+
+E1, E2, E3는 서로 독립적이므로 동시에 실행할 수 있다. E4만 E1~E3를 기다리면 된다. 이 병렬화로 전체 실행 시간이 크게 단축된다.
+
+LLMCompiler 논문(ICML 2024)은 최대 **3.7배 지연 단축**, 최대 **6.7배 비용 절감**을 달성했다고 보고했다. 비용 절감이 지연 단축보다 더 큰 이유는, 병렬화로 인해 중간 컨텍스트 축적이 줄어들고 불필요한 중간 LLM 호출도 감소하기 때문이다.
+
+## 두 패턴 비교와 선택 기준
+
+| 차원 | ReWOO | LLMCompiler |
+|------|-------|------------|
+| 주 공략 비효율 | 토큰 낭비 (컨텍스트 축적) | 지연 (순차 도구 실행) |
+| 핵심 메커니즘 | 관찰 전 전체 계획 | DAG 기반 병렬 실행 |
+| 적합 태스크 | 도구 결과가 길고 많은 태스크 | 독립 도구 호출이 많은 태스크 |
+| 사전 계획 필요 | 예 | 예 |
+| 동적 재계획 | 제한적 | Joiner를 통한 동적 재계획 |
+| 검증된 수치 | 토큰 5배 절감, HotpotQA +4% | 지연 최대 3.7배 단축, 비용 최대 6.7배 절감 |
+
+두 패턴 공통 약점: 계획 단계에서 예측하지 못한 도구 실패가 발생하면 전체 계획이 무너질 수 있다. ReWOO의 Worker는 오류 발생 시 기본적으로 계속 진행하므로, 초기 오류가 후속 단계를 오염시킬 위험이 있다. LLMCompiler의 Joiner가 이를 보완하지만 Joiner 자체도 추가 LLM 호출이다.
+
+import Quiz from '../../../components/learning/Quiz.tsx';
+
+<Quiz section="03-single-agent-patterns" client:load />

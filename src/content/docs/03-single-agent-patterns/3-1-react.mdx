@@ -1,0 +1,169 @@
+---
+title: "ReAct: 추론과 행동의 교차"
+description: Thought-Act-Observe 사이클을 반복해 외부 도구와 상호작용하는 ReAct 패턴의 구조와 강점, 한계를 살펴봅니다.
+sidebar:
+  order: 1
+learning_objectives:
+  - "ReAct 루프의 Thought → Action → Observation 사이클을 설명할 수 있다"
+  - "ReAct가 ALFWorld·WebShop 벤치마크에서 달성한 성능 향상 수치를 인용할 수 있다"
+  - "컨텍스트 선형 증가와 캐스케이딩 에러라는 두 가지 핵심 약점을 이해한다"
+prerequisites:
+  - "2-5-minimal-agent-loop"
+estimated_minutes: 30
+references:
+  - title: "Yao et al. — ReAct: Synergizing Reasoning and Acting in Language Models (arXiv:2210.03629)"
+    url: "https://arxiv.org/abs/2210.03629"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Lilian Weng — LLM Powered Autonomous Agents"
+    url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
+    accessed: "2026-06-30"
+---
+
+## 왜 추론과 행동을 교차해야 하는가
+
+LLM이 단독으로 추론만 하면 환각(hallucination)이 누적된다. 반대로 행동만 나열하면 맥락 없는 클릭이 된다. ReAct(Reason + Act)는 이 두 가지를 **한 루프 안에서 번갈아 실행**함으로써 서로를 교정하도록 설계된 패턴이다. 2022년 Yao 등이 ICLR 2023에 발표한 논문에서 공개된 이 아이디어는 이후 사실상 모든 에이전틱 프레임워크의 기반이 되었다.
+
+핵심 직관은 단순하다. 모델이 "지금 무엇을 생각하고 있는가"를 텍스트로 출력(Thought)하고, 그 생각에 기반해 도구를 호출(Action)하고, 도구가 돌려준 결과를 관찰(Observation)한 다음, 다시 생각으로 들어간다. 이 사이클은 모델이 "완료(end_turn)"를 선언할 때까지 반복된다.
+
+## Thought → Action → Observation 사이클
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                      ReAct 루프 한 이터레이션                 │
+├──────────────┬──────────────────────────────────────────────┤
+│   Thought    │  "파리의 현재 기온을 확인해야겠다."              │
+├──────────────┼──────────────────────────────────────────────┤
+│   Action     │  search("파리 현재 날씨")                      │
+├──────────────┼──────────────────────────────────────────────┤
+│ Observation  │  "파리 현재 기온: 18°C, 맑음"                  │
+├──────────────┼──────────────────────────────────────────────┤
+│   Thought    │  "기온을 얻었다. 이제 체감온도도 필요하다."       │
+├──────────────┼──────────────────────────────────────────────┤
+│   Action     │  search("파리 체감온도 오늘")                   │
+├──────────────┼──────────────────────────────────────────────┤
+│ Observation  │  "체감온도: 15°C"                              │
+├──────────────┼──────────────────────────────────────────────┤
+│   Thought    │  "충분한 정보를 모았다. 답변할 수 있다."          │
+├──────────────┼──────────────────────────────────────────────┤
+│  Final Ans   │  "파리 현재 기온 18°C, 체감 15°C입니다."         │
+└──────────────┴──────────────────────────────────────────────┘
+```
+
+Thought는 실제 도구를 호출하지 않는다. 이것은 모델의 **언어적 작업 메모**다. 다음 행동을 결정하고, 이전 관찰이 무엇을 의미하는지 해석하며, 전략을 조정하는 공간이다. 이 가시적 추론 흔적 덕분에 디버깅이 쉬워진다는 부수적 이점도 있다.
+
+## Python으로 보는 ReAct 루프 구현
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+import json
+
+def react_loop(model, tools: dict, task: str, max_steps: int = 10) -> str:
+    """
+    ReAct 루프: Thought-Action-Observation을 반복한다.
+    tools: {"tool_name": callable} 딕셔너리
+    """
+    messages = [{"role": "user", "content": task}]
+    tool_schemas = [
+        {"name": name, "description": fn.__doc__, "parameters": {}}
+        for name, fn in tools.items()
+    ]
+
+    for step in range(max_steps):
+        response = model.generate(messages, tools=tool_schemas)
+
+        # 모델이 완료를 선언하면 마지막 텍스트를 반환
+        if response.stop_reason == "end_turn":
+            return response.text
+
+        # 도구 호출을 순서대로 실행하고 관찰 결과 수집
+        tool_calls = response.tool_calls
+        messages.append({"role": "assistant", "content": response.content})
+
+        for call in tool_calls:
+            fn = tools.get(call.name)
+            if fn is None:
+                observation = f"ERROR: 알 수 없는 도구 '{call.name}'"
+            else:
+                try:
+                    observation = fn(**call.arguments)
+                except Exception as e:
+                    observation = f"ERROR: {e}"
+
+            messages.append({
+                "role": "tool",
+                "tool_use_id": call.id,
+                "content": str(observation),
+            })
+
+    return "최대 스텝 수를 초과했습니다."
+
+
+# 예시 도구
+def search(query: str) -> str:
+    """웹에서 정보를 검색합니다."""
+    # 실제 구현에서는 검색 API 호출
+    return f"'{query}'에 대한 검색 결과..."
+
+def calculator(expression: str) -> str:
+    """수학 식을 계산합니다."""
+    return str(eval(expression))  # 실제 구현에서는 안전한 파서 사용
+
+
+result = react_loop(
+    model=model,
+    tools={"search": search, "calculator": calculator},
+    task="서울에서 파리까지 비행 거리를 km로 알려주고, 그 거리의 절반을 계산해줘.",
+)
+```
+
+## 성능: ALFWorld와 WebShop 벤치마크
+
+ReAct 논문은 두 개의 멀티스텝 태스크 벤치마크에서 실력을 입증했다.
+
+| 벤치마크 | 비교 대상 | ReAct 향상 |
+|---------|-----------|-----------|
+| ALFWorld (가정 내 작업 에이전트) | RL 기준선 | **+34% absolute** |
+| WebShop (전자상거래 탐색) | 행동 전용 기준선 | **+10% absolute** |
+
+ALFWorld에서의 +34%는 특히 주목할 만하다. 이 벤치마크는 텍스트 기반 가상 환경에서 "책상 위 책을 책장에 꽂아라"처럼 여러 단계가 필요한 지시를 수행한다. Thought 없이 Action만 반복하는 방식(행동 전용)보다, 추론과 행동을 교차하는 ReAct가 훨씬 강건하게 작동한다는 사실을 보여준다.
+
+## ReAct의 두 가지 핵심 약점
+
+### 1. 컨텍스트 선형 증가
+
+ReAct 루프는 매 이터레이션마다 Thought + Action + Observation을 컨텍스트에 **누적**한다. 10스텝 루프라면 시작 시 컨텍스트의 10배가 될 수 있다. LLM의 셀프어텐션은 O(n²) 복잡도이므로, 컨텍스트가 길어질수록 레이턴시와 비용이 급격히 증가한다. 더 심각한 문제는 "중간에 묻히는(lost in the middle)" 현상으로, 오래된 관찰 결과가 주의(attention)를 받지 못하고 사라질 수 있다.
+
+### 2. 캐스케이딩 에러
+
+초기 Action이 잘못된 도구를 호출하거나 잘못된 쿼리를 보내면, 그 잘못된 Observation이 다음 Thought를 오염시키고, 오염된 Thought가 다음 Action을 망친다. **에러가 루프를 타고 복리로 전파**되는 것이다. ReAct는 이 캐스케이딩을 자동으로 감지하거나 회복하는 메커니즘이 없다. 이것이 다음 챕터에서 다룰 Reflexion 패턴이 등장하는 이유다.
+
+```text
+┌───────────────────────────────────────────────────────────┐
+│              ReAct의 강점과 약점 요약                       │
+├────────────────────┬──────────────────────────────────────┤
+│      강점          │          약점                         │
+├────────────────────┼──────────────────────────────────────┤
+│ 추론 흔적 가시성   │ 컨텍스트 선형(무제한) 증가             │
+│ 도구와 자연 통합   │ 캐스케이딩 에러 자동 회복 없음         │
+│ 구현 단순          │ 캐시 히트율 저하 (Thought 가변)        │
+│ 범용 적용 가능     │ 스텝 수가 고정 없음 (비결정론적)       │
+└────────────────────┴──────────────────────────────────────┘
+```
+
+## ReAct를 쓸 때 고려할 설계 결정
+
+**max_steps 가드**: 반드시 최대 이터레이션 수를 하드코딩하라. Thought가 순환할 수 있고, 모델이 영원히 end_turn을 선언하지 않을 수 있다.
+
+**Thought의 범위 제한**: 시스템 프롬프트에서 Thought의 길이를 제한하면 컨텍스트 팽창을 늦출 수 있다. "간결하게 한두 문장으로만 생각하라"는 지시가 효과적이다.
+
+**도구 결과 요약**: 매우 긴 도구 출력(예: 웹 검색 결과 전문)을 그대로 컨텍스트에 넣지 말고, 별도 요약 모델 호출이나 단순 파싱으로 압축하라. 이는 "컨텍스트 선형 증가" 약점을 실질적으로 완화한다.
+
+**에러 메시지를 행동 가능하게**: 도구가 실패할 때 "ERROR" 한 줄만 반환하면, 모델은 무엇을 수정해야 할지 모른다. "쿼리 형식이 잘못됨: 공백 없이 입력하세요"처럼 **수정 방향**을 담은 에러 메시지를 설계하라.
+
+## ReAct가 현대 에이전트 프레임워크에 남긴 유산
+
+ReAct는 단순히 논문 하나가 아니라, 이후 등장한 모든 에이전틱 루프 패턴의 공통 어휘를 정립했다. LangChain의 AgentExecutor, LangGraph의 노드-엣지 그래프, OpenAI Agents SDK의 루프, Anthropic의 도구 사용 문서 — 이 모두가 Thought-Action-Observation의 기본 골격 위에 서 있다. 다음 챕터에서 살펴볼 Reflexion은 "외부 trial 루프를 추가해 ReAct의 에러 회복 불능 문제를 해결"한다. Plan-and-Execute는 "Thought 단계를 별도 Planner 모델로 분리"한다. ReAct를 이해하는 것은 이 모든 변형을 이해하는 기초다.

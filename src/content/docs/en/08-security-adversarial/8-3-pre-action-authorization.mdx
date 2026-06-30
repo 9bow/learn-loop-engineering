@@ -1,0 +1,201 @@
+---
+title: "Pre-Action Authorization"
+description: Separating the model's reasoning from permission enforcement — using deterministic, non-LLM code to authorize tool calls before they execute.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Explain the difference between reasoning-based permission checks and deterministic authorization logic"
+  - "Implement a pre-action authorization layer in an agentic loop"
+  - "Understand the design principles that prevent a model from reasoning its way around safety constraints"
+prerequisites:
+  - "8-1-prompt-injection"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Writing effective tools for AI agents"
+    url: "https://www.anthropic.com/engineering/writing-tools-for-agents"
+    accessed: "2026-06-30"
+  - title: "MCP Specification 2025-11-25"
+    url: "https://modelcontextprotocol.io/specification/2025-11-25"
+    accessed: "2026-06-30"
+---
+
+## Do Not Delegate Safety to the Model
+
+How should an agent loop enforce permission controls? The most intuitive approach is to write "do not do X" in the system prompt. That approach has a fatal weakness: **the model can reason its way around the constraint**.
+
+A pattern that actually occurs in practice:
+
+- System prompt: "Do not write to the production database."
+- Model's reasoning: "The situation is urgent, achieving the user's goal requires it, and the change can be reverted later… so in this exceptional case it is permitted."
+- Outcome: production database is written.
+
+The more capable a model's reasoning is, the more sophisticated its logic for justifying "exceptions" becomes. Relying solely on the reasoning layer for safety constraints means that the model's reasoning ability is also its security vulnerability.
+
+## Separating Reasoning from Authorization
+
+The core idea of **pre-action authorization** is:
+
+> Separate the model's decision that an action *should* happen (reasoning) from the determination of whether that action *is permitted* (authorization). Authorization must be implemented in **deterministic, non-LLM code**.
+
+```text
+Existing structure (authorization delegated to reasoning):
+  User request ──▶ Model reasoning ──▶ Tool execution
+                         │
+                   can reason: "this constraint is an exception"
+
+Pre-action authorization structure (reasoning and authorization separated):
+  User request ──▶ Model reasoning ──▶ Tool call request ──▶ Authorization layer ──▶ Tool execution
+                                                                      │
+                                                            deterministic code
+                                                            (model cannot bypass)
+```
+
+The authorization layer receives the model's intended tool call and decides allow/deny, but that decision is made entirely in code — the model has no influence over it.
+
+## Implementing the Authorization Layer
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+from dataclasses import dataclass
+from typing import Literal
+
+@dataclass
+class AuthorizationResult:
+    decision: Literal["allow", "deny", "require_human_approval"]
+    reason: str
+
+class PreActionAuthorizer:
+    """
+    Deterministic permission check before tool execution.
+    Completely separate from model reasoning — pure code.
+    """
+
+    def __init__(self, policy: dict):
+        self.policy = policy
+
+    def authorize(self, tool_name: str, arguments: dict, context: dict) -> AuthorizationResult:
+        """
+        Check tool name and arguments against policy.
+        Does not call any LLM — implemented in pure code.
+        """
+        # 1. Blacklist check (always deny)
+        if tool_name in self.policy.get("blacklist", []):
+            return AuthorizationResult(
+                "deny",
+                f"'{tool_name}' is not permitted under policy"
+            )
+
+        # 2. High-risk argument pattern check
+        if tool_name == "write_file":
+            path = arguments.get("path", "")
+            if any(path.startswith(p) for p in self.policy.get("protected_paths", [])):
+                return AuthorizationResult(
+                    "require_human_approval",
+                    f"Writing to protected path '{path}' requires human approval"
+                )
+
+        # 3. Environment-based check
+        if context.get("environment") == "production":
+            if tool_name in self.policy.get("production_restricted", []):
+                return AuthorizationResult(
+                    "deny",
+                    "This action is not permitted in the production environment"
+                )
+
+        return AuthorizationResult("allow", "")
+
+
+def run_tool_with_authorization(tool_name, arguments, authorizer, context):
+    """Wrapper that passes every tool call through the authorization layer."""
+    result = authorizer.authorize(tool_name, arguments, context)
+
+    if result.decision == "deny":
+        return {"error": f"Denied: {result.reason}"}
+    elif result.decision == "require_human_approval":
+        approved = request_human_approval(tool_name, arguments, result.reason)
+        if not approved:
+            return {"error": "Human rejected the action"}
+
+    return execute_tool(tool_name, arguments)
+```
+
+In this structure, the model only **requests** a tool call. The actual execution decision is made by `PreActionAuthorizer`. No matter how sophisticated the model's reasoning that "this action must happen," the policy decides — and the policy is code, not text.
+
+## Authorization Policy Design Principles
+
+Policies must be explicit and verifiable:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│              Authorization Policy Design Principles           │
+├──────────────────────────────────────────────────────────────┤
+│ 1. Explicit allowlist first                                   │
+│    Rather than "allow everything, deny only the dangerous"   │
+│    use "allow only what is on the allowlist"                 │
+│                                                              │
+│ 2. High-risk actions require human approval                  │
+│    Deletions, sends, financial transactions,                 │
+│    public disclosures                                        │
+│                                                              │
+│ 3. Environment awareness                                     │
+│    What is permitted in development may be                   │
+│    denied in production                                      │
+│                                                              │
+│ 4. Argument-level inspection                                 │
+│    Check not just the tool name but the specific arguments   │
+│    e.g. delete_file("/tmp/x") vs delete_file("/prod/db")     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Pre-Authorization in MCP Environments
+
+In Model Context Protocol deployments, the client (agent harness) receives a list of tools from the server and executes them. The MCP specification requires the client to obtain **explicit user consent** before executing any tool call. This is the pre-action authorization pattern enforced at the protocol level.
+
+In practice, every MCP tool call should pass through an authorization layer in the client harness. Implementations that automatically execute MCP server tools without authorization inherit the full prompt-injection risk described in chapter 8-1.
+
+## Coupling Authorization with an Audit Log
+
+Pre-action authorization should be designed alongside an **audit log**. Every authorization decision — allow, deny, or human-approval request — is recorded in an immutable log.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+import json
+from datetime import datetime, timezone
+
+def log_authorization_event(tool_name, arguments, result, session_id):
+    """Record the authorization decision in the immutable audit log."""
+    event = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "session_id": session_id,
+        "tool": tool_name,
+        "arguments_hash": hash_arguments(arguments),  # protect sensitive values
+        "decision": result.decision,
+        "reason": result.reason
+    }
+    append_to_immutable_log(json.dumps(event))
+```
+
+When an agent later behaves unexpectedly, the audit log allows precise reconstruction of which authorization decisions were made and when. This is a key component of the bounded-autonomy architecture introduced in the next chapter.
+
+## Placement of the Authorization Layer
+
+Finally, the authorization layer must sit **between the loop and the tool** — not only in the system prompt and not only inside individual tools. Neither location alone is sufficient.
+
+```text
+Correct Placement of the Authorization Layer
+
+  Agent loop
+       │
+       ▼ tool call request
+  ┌─ Authorization layer ─┐  ← placed here
+  │  deterministic check  │
+  └───────────────────────┘
+       │
+       ▼ only if allowed
+  Tool execution (inside sandbox)
+```
+
+The next chapter draws together authorization, sandboxing, and observability into a unified security architecture: **bounded autonomy with audit logging**.

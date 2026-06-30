@@ -1,0 +1,151 @@
+---
+title: "LLM-as-Judge: Automated Verification in Loops"
+description: Using an LLM as the judge to automatically evaluate another LLM's output — scoring modes, the types of bias and how to mitigate them, and how to integrate the pattern into agentic loops.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Distinguish the three LLM-as-Judge scoring modes (single, pairwise, reference-based) and identify when each is appropriate"
+  - "Apply mitigations for position bias, verbosity bias, and self-enhancement bias"
+  - "Implement LLM-as-Judge as a verification step inside an agentic loop"
+prerequisites:
+  - "6-2-generator-verifier-gap"
+estimated_minutes: 30
+references:
+  - title: "Zheng et al. — Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena (arXiv:2306.05685)"
+    url: "https://arxiv.org/abs/2306.05685"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## LLM Judges LLM
+
+The previous chapter introduced the Generator-Verifier Gap. For language tasks — summary quality, response appropriateness, validity of reasoning — where test runners and rule-based checks do not apply, how can automated verification be implemented? The practical answer is **LLM-as-Judge**: using a language model as the evaluator of another language model's output.
+
+Zheng et al., in research published at NeurIPS 2023 (arXiv:2306.05685), used GPT-4 as a judge to evaluate LLM responses on MT-Bench and Chatbot Arena. The key finding: **GPT-4 as a judge agreed with human preference judgments more than 80% of the time — a level comparable to human inter-annotator agreement**. This result demonstrated that an LLM can, at a certain level of linguistic judgment, substitute for human evaluation.
+
+## Three Scoring Modes
+
+LLM-as-Judge operates in three modes depending on the evaluation objective.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│              LLM-as-Judge Scoring Modes Compared              │
+├─────────────────┬───────────────┬───────────────────────────┤
+│  Mode           │  Input        │  When to Use              │
+├─────────────────┼───────────────┼───────────────────────────┤
+│ Single          │  Response A   │  Absolute quality eval     │
+│                │  + criteria   │  "Is this summary good?"   │
+├─────────────────┼───────────────┼───────────────────────────┤
+│ Pairwise        │  Response A   │  Relative comparison       │
+│                │  vs B         │  "Which is more accurate?" │
+│                │  + criteria   │                            │
+├─────────────────┼───────────────┼───────────────────────────┤
+│ Reference-based │  Response A   │  When the correct answer  │
+│                │  + Gold std.  │  is known                  │
+│                │               │  "Does this match the spec?"│
+└─────────────────┴───────────────┴───────────────────────────┘
+```
+
+For verifying agentic loop outputs, **reference-based** or **single** scoring is most common. The original task specification serves as the reference, and a separate LLM evaluates how well the agent's final output satisfies that specification.
+
+## Types of Bias and How to Mitigate Them
+
+LLM-as-Judge is imperfect because it carries inherent biases. Zheng et al. identified three major ones.
+
+**Position Bias.** In pairwise comparisons, the judge LLM tends to favor the response presented first. When shown A then B, the probability of selecting A is statistically elevated.
+
+**Verbosity Bias.** Longer responses are perceived as better responses. In reality, a concise and precise answer may be superior, but the judge conflates quantity with quality.
+
+**Self-Enhancement Bias.** When the judge model belongs to the same model family as the generator, it tends to prefer outputs from that family. GPT-4 may favor GPT-family responses; Claude may favor Claude-family responses.
+
+| Bias | Cause | Mitigation |
+|------|-------|-----------|
+| Position bias | Order-of-presentation effect | Evaluate A→B then B→A, average the scores |
+| Verbosity bias | Length = quality confusion | Explicit "length is irrelevant" instruction |
+| Self-enhancement bias | Same-family familiarity | Use a judge from a different model family |
+| General framing | Ambiguous criteria | Request CoT evaluation; provide detailed rubrics |
+
+## Integrating LLM-as-Judge into an Agentic Loop
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+JUDGE_SYSTEM_PROMPT = """
+You are a fair evaluator. Compare the given task specification against the agent's
+output and evaluate it on the following criteria:
+1. Accuracy: Is the output factually correct?
+2. Completeness: Does it satisfy all requirements?
+3. Quality: Is the format and expression appropriate?
+
+Return your evaluation as JSON:
+{"passed": true/false, "score": 0-10, "reason": "specific reasoning"}
+"""
+
+def llm_judge(task_spec: str, agent_output: str,
+              swap_positions: bool = True) -> dict:
+    """
+    Includes position-swapped evaluation to mitigate position bias.
+    """
+    def single_eval(spec, output) -> dict:
+        response = judge_model.generate([
+            {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+            {"role": "user",
+             "content": f"Task specification:\n{spec}\n\nAgent output:\n{output}"}
+        ])
+        return parse_json(response.content)
+
+    result1 = single_eval(task_spec, agent_output)
+
+    if swap_positions:
+        # Swap positions and re-evaluate (bias mitigation)
+        result2 = single_eval(agent_output, task_spec)
+        avg_score = (result1["score"] + result2["score"]) / 2
+        passed = avg_score >= 7.0  # threshold
+        return {"passed": passed, "score": avg_score, "reason": result1["reason"]}
+
+    return result1
+
+
+def run_loop_with_llm_judge(task: str, tools: list, max_iters: int = 20):
+    messages = [{"role": "user", "content": task}]
+
+    for _ in range(max_iters):
+        response = model.generate(messages, tools=tools)
+
+        if response.stop_reason == "end_turn":
+            # Verify with LLM-as-Judge
+            verdict = llm_judge(task, response.content)
+
+            if verdict["passed"]:
+                return {"status": "success", "result": response.content,
+                        "score": verdict["score"]}
+            else:
+                # Add judge feedback to context and retry
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"Evaluation result: FAIL (score {verdict['score']}/10)\n"
+                        f"Reason: {verdict['reason']}\n"
+                        "Please revise your output based on this feedback."
+                    )
+                })
+                continue
+
+        for call in response.tool_calls:
+            result = run_tool(call)
+            messages.append(tool_result(result))
+
+    return {"status": "max_iters_exceeded"}
+```
+
+## Appropriate Use Cases and Limitations
+
+LLM-as-Judge shines in large-scale automated evaluation where human review is not feasible due to cost or time. In agentic loops, it is particularly valuable in these situations:
+
+- **Language quality evaluation** such as summarization, translation, and code explanation
+- **Selecting the best option** among multiple plans the agent has generated
+- **Confirming that an agent's final response meets the initial specification**
+
+But the limits are equally clear. An 80% human agreement rate is impressive — but it also means **20% of the time it is wrong**. For tasks with deterministic ground truth — math computations, code execution results — a test runner is far more trustworthy than LLM-as-Judge. LLM-as-Judge is one automated verification tool, not the only answer.

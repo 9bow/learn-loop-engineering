@@ -1,0 +1,114 @@
+---
+title: "Chain-of-Thought: The Internal Reasoning Step Inside the Loop"
+description: Understand why Chain-of-Thought is not itself a loop but an internal reasoning mechanism inside a single forward pass, and clarify its relationship to the agentic loop.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Clearly distinguish Chain-of-Thought from the agentic loop"
+  - "Explain how CoT improves reasoning quality within a single forward pass"
+  - "Differentiate Zero-shot CoT from Few-shot CoT and describe their role inside the loop"
+prerequisites:
+  - "2-1-observe-reason-act-evaluate"
+estimated_minutes: 28
+references:
+  - title: "Wei et al. — Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (arXiv:2201.11903)"
+    url: "https://arxiv.org/abs/2201.11903"
+    accessed: "2026-06-30"
+  - title: "Wang et al. — Self-Consistency Improves Chain of Thought Reasoning in Language Models (arXiv:2203.11171)"
+    url: "https://arxiv.org/abs/2203.11171"
+    accessed: "2026-06-30"
+---
+
+## A Common Misconception: CoT Is Not a Loop
+
+Because Chain-of-Thought (CoT) is often described as "the model thinking through a problem," it is easy to conflate it with the agentic loop. The two operate at fundamentally different levels.
+
+A **loop** is an external control structure spanning multiple model calls, tool executions, and external observations — different independent model invocations separated in time.
+
+**Chain-of-Thought** is a technique that causes the model to generate intermediate reasoning steps in text *within a single forward pass*, before committing to a final answer. The chain "A, therefore B, therefore C" is produced as a continuous token sequence in one generation — no external tool call, no new model invocation, no loop.
+
+```text
+CoT Inside a Single Forward Pass
+───────────────────────────────────────────────────────
+Input: "Solve the following math problem: ..."
+
+Model internally (one forward pass):
+  [token gen 1] "Let me work through this step by step."
+  [token gen 2] "First, compute A..."
+  [token gen 3] "Then, use that to find B..."
+  [token gen N] "Therefore, the final answer is 42."
+
+Output: intermediate reasoning + final answer (one response)
+───────────────────────────────────────────────────────
+No tool call. No loop. One generation from start to finish.
+```
+
+## Wei et al.'s Finding
+
+Jason Wei et al.'s 2022 CoT paper (arXiv:2201.11903) started from a straightforward observation: if few-shot examples include step-by-step solutions, the model solves new problems in the same step-by-step manner. This simple change produced large performance gains on mathematical reasoning, commonsense reasoning, and symbolic reasoning tasks.
+
+Two CoT variants exist:
+
+- **Few-shot CoT**: several worked examples with intermediate steps are included in the prompt, and the model mimics that pattern.
+- **Zero-shot CoT**: no examples — just the instruction "Let's think step by step." Remarkably, this single sentence is effective in many settings.
+
+## CoT's Role Inside the Agentic Loop
+
+The Reason stage of the agentic loop is exactly where CoT operates. In each iteration, the model processes accumulated context and generates intermediate reasoning before deciding on its next action (tool call or completion).
+
+```text
+Loop + CoT Relationship
+───────────────────────────────────────────────────────
+Iteration 1:
+  [OBSERVE] user: "Read foo.py and find the bug"
+  [REASON / CoT] "I need to see the file contents first.
+                  I will call read_file('foo.py')."
+  [ACT] read_file('foo.py') executed
+  [EVALUATE] file contents → appended to context
+
+Iteration 2:
+  [OBSERVE] file contents now in context
+  [REASON / CoT] "Line 5 has an index error.
+                  Thinking through the fix..."
+  [ACT] write_file('foo.py', corrected_content) executed
+  [EVALUATE] done — declare end_turn
+───────────────────────────────────────────────────────
+CoT operates inside each iteration. The loop spans iterations.
+```
+
+The loop is the **external structure between iterations**. CoT is the **internal reasoning mechanism within each iteration**. They work at different levels.
+
+## Self-Consistency: A Fan-Out Variant of CoT
+
+Wang et al. (arXiv:2203.11171) introduced Self-Consistency — run CoT multiple times with different sampling temperatures and take a majority vote on the final answer. This addresses a weakness of single-pass CoT: if the model locks into a wrong reasoning path, there is no recovery mechanism. Sampling diverse paths and voting across them provides that recovery.
+
+Self-Consistency showed gains of +17.9% on GSM8K, +11.0% on SVAMP, and +12.2% on AQuA. In an agentic loop context, it maps to a pattern of generating multiple candidate actions or hypotheses per iteration and selecting the best before acting.
+
+| Approach | Reasoning paths | Cost | Best for |
+|---|---|---|---|
+| Single CoT | 1 | Low | When speed matters |
+| Self-Consistency | K (e.g., 5–20) | High | When accuracy is critical |
+| Zero-shot CoT | 1 | Low | When no examples are available |
+
+## Production CoT Considerations
+
+This is illustrative pseudocode; actual API signatures differ.
+
+```python
+# Zero-shot CoT prompt construction
+def build_reasoning_prompt(task: str) -> str:
+    return f"""Before taking action, organize your thinking step by step.
+
+Task: {task}
+
+Reasoning:
+1. What information do I need to gather first?
+2. What tools are required, and in what order?
+3. What could go wrong at each step?
+
+Action:"""
+```
+
+The intermediate reasoning tokens generated by CoT increase cost. But they also improve accuracy and make it far easier to trace where a failure occurred. In an agentic loop, leaving the reasoning trace in context helps the model understand the rationale behind earlier decisions in subsequent iterations — a meaningful benefit when loops run for many steps.
+
+The next chapter turns to how the loop interacts with the outside world: the Tool Use protocol and the principles of Agent-Computer Interface (ACI) design.

@@ -1,0 +1,116 @@
+---
+title: "Trajectory Evaluation vs. Final Answer Evaluation"
+description: An agent can produce the right answer via a terrible path. Explore how trajectory evaluation fills the blind spots left by final-answer-only scoring.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Describe three signals that final-answer evaluation misses"
+  - "Define the efficiency, accuracy, and adaptability metrics used in trajectory evaluation"
+  - "Understand how to apply LLM-as-judge to score an entire agent trajectory"
+prerequisites:
+  - "9-1-tracing-otel"
+estimated_minutes: 26
+references:
+  - title: "Zheng et al. — Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena (arXiv:2306.05685)"
+    url: "https://arxiv.org/abs/2306.05685"
+    accessed: "2026-06-30"
+  - title: "OpenTelemetry — GenAI Agent Spans Semantic Conventions"
+    url: "https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## The Right Answer via the Wrong Path
+
+An agent solved the problem. The final answer is correct. But when you look inside the loop, it opened the wrong file three times, performed five unnecessary web searches, and at one point hallucinated a value into a tool parameter — only correcting itself after receiving an error. **The result is right; the path is bad.** Final answer evaluation catches none of this waste.
+
+The reverse is also true. An agent may have failed to produce the correct final answer, yet its trajectory — what it searched for, how it revised its reasoning — was perfectly reasonable. In that case, labeling it a complete failure is unfair. You need to know *where* it broke down to improve it.
+
+That is why **trajectory evaluation** is necessary.
+
+## Three Blind Spots of Final-Answer Evaluation
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│        Three Blind Spots of Final-Answer Evaluation          │
+├──────────────────────────────────────────────────────────────┤
+│ 1. Path opacity   A correct answer can still be the product  │
+│                   of inefficiency, hallucination, or luck    │
+│ 2. No improvement signal  Without knowing which step failed, │
+│                   there is no clear fix target               │
+│ 3. Biased signal  Binary pass/fail over- or under-estimates  │
+│                   true agent capability                      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Path opacity** is the central problem. If an agent makes ten unnecessary tool calls before stumbling onto the right answer, the run is recorded as a success. But the tokens are already spent, and if this inefficient path repeats in production, operating costs grow quickly.
+
+**Absence of per-step feedback** makes improvement difficult. Knowing only that an agent failed tells you nothing about where to start fixing. You need to know that on the third iteration the agent hallucinated a filename, and that this error then contaminated every subsequent step.
+
+## What Trajectory Evaluation Measures
+
+Trajectory evaluation examines the agent's full action sequence. The metrics fall into three categories.
+
+| Category | Metric | How to Measure |
+|---|---|---|
+| **Efficiency** | total iterations, unnecessary tool calls, total tokens | aggregated from span data |
+| **Accuracy** | hallucinated tool parameter rate, schema error count | inspect execute_tool spans |
+| **Adaptability** | iterations to recovery after first error | error span → retry span distance |
+
+**Efficiency** metrics answer: "Did this agent do the work without waste?" An agent that solves the same task in three iterations is strictly better than one that takes eight, even if both return the same final answer.
+
+**Accuracy** metrics catch hallucinations in intermediate steps. If a non-existent filename appears in a tool call parameter, the path is fragile even if the final answer is correct — a different run on the same input might hallucinate a different invalid value.
+
+**Adaptability** metrics measure resilience. When a tool call returns an error, does the agent immediately try a different approach, or does it repeat the same failing call several times before giving up?
+
+## Applying LLM-as-Judge to the Full Trajectory
+
+Numeric metrics alone are sometimes insufficient. Subtle patterns — qualitative consistency of reasoning, unnecessary detours that look superficially plausible — are hard to capture with deterministic rules. This is when you apply the **LLM-as-judge** pattern to the entire trajectory.
+
+Research shows that GPT-4-class models acting as judges achieve over 80% agreement with human evaluator preferences, a level comparable to inter-human agreement rates (Zheng et al., 2023). When used for trajectory evaluation, the full trace is converted to a text representation and provided to the judge model.
+
+This is a conceptual pseudocode example; actual API signatures may differ.
+
+```python
+def trajectory_to_text(spans: list) -> str:
+    """Convert a list of OTel spans into human-readable text for the judge."""
+    lines = []
+    for span in spans:
+        op = span.attributes.get("gen_ai.operation.name")
+        if op == "chat":
+            lines.append(
+                f"[STEP {span.step}] Model call: "
+                f"input {span.attributes['gen_ai.usage.input_tokens']} tokens"
+            )
+        elif op == "execute_tool":
+            lines.append(
+                f"[STEP {span.step}] Tool: "
+                f"{span.attributes['gen_ai.tool.name']} "
+                f"-> {'ERROR' if span.error else 'OK'}"
+            )
+    return "\n".join(lines)
+
+def judge_trajectory(trajectory_text: str, task: str) -> dict:
+    prompt = f"""Below is the complete trajectory of an agent working on a task.
+Task: {task}
+
+Trajectory:
+{trajectory_text}
+
+Rate each dimension 1-5:
+- Efficiency: Did the agent proceed directly without unnecessary steps?
+- Accuracy: Was each step's reasoning grounded in facts?
+- Adaptability: Did the agent recover quickly from failures?
+Respond as JSON: {{"efficiency": N, "accuracy": N, "adaptability": N, "rationale": "..."}}"""
+    return call_judge_model(prompt)
+```
+
+Note: the `{{"efficiency": ...}}` above uses doubled braces to produce literal `{` and `}` in the formatted string.
+
+## Combining Step-Level and Trajectory-Level Evaluation
+
+A practical evaluation system uses both levels together. At the step level, deterministic checks are automated: tool parameter schema validation, presence of errors, response format conformance. At the trajectory level, LLM-as-judge assesses the quality of the overall flow. This combination gives the most complete picture of "how well is this agent performing right now?"
+
+The next chapter takes these evaluation ideas into the context of real agent benchmarks — specifically **SWE-bench** — where trajectory quality translates directly into measurable pass rates.

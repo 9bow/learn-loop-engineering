@@ -1,0 +1,106 @@
+---
+title: "The Loop as an MDP"
+description: Formalizing the agentic loop as a Markov Decision Process (MDP) and understanding sparse rewards and the credit assignment problem.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Map an agentic loop onto the elements of a POMDP (state, observation, action, transition, reward, policy)"
+  - "Understand token generation as a finite-horizon MDP and explain the sparse-reward problem"
+  - "Discuss how the credit assignment challenge constrains loop design"
+prerequisites:
+  - "2-1-observe-reason-act-evaluate"
+estimated_minutes: 28
+references:
+  - title: "DeepSeek-AI — DeepSeek-R1 (arXiv:2501.12948)"
+    url: "https://arxiv.org/abs/2501.12948"
+    accessed: "2026-06-30"
+  - title: "Lilian Weng — LLM Powered Autonomous Agents"
+    url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## Putting the Loop into Mathematical Language
+
+An agentic loop is intuitively clear: observe, think, act, observe again. But to *improve* that loop — to ask which actions were good, which prompts produced better results — we need a more precise language. Reinforcement learning (RL) has spent decades developing exactly that language: the **Markov Decision Process (MDP)**.
+
+An MDP is defined by a five-element tuple `(S, A, T, R, γ)`. Mapped onto an agentic loop, the correspondence looks like this:
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│               Agentic Loop ↔ MDP Mapping                        │
+├──────────────────┬──────────────────────────────────────────────┤
+│ MDP Element      │ Counterpart in the Agentic Loop              │
+├──────────────────┼──────────────────────────────────────────────┤
+│ S  State space   │ Filesystem, DB, external APIs — world state  │
+│ O  Obs. space    │ Context window the model receives (+ results)│
+│ A  Action space  │ Tool calls, code execution, message output   │
+│ T  Transition fn │ Tool execution result + environment changes  │
+│ R  Reward fn     │ Test pass/fail, LLM-judge score, user OK     │
+│ π  Policy        │ LLM + system prompt + temperature/sampling   │
+│ γ  Discount rate │ How much present weighting future rewards    │
+└──────────────────┴──────────────────────────────────────────────┘
+```
+
+In practice, real agentic environments are not pure MDPs — they are closer to a **POMDP (Partially Observable MDP)**. The model never sees the full world state `S`; it only receives the observation `O` filtered through the context window. Even if a file sits on disk, it is invisible until a `read_file` call brings it into view. This partial observability is one of the chief reasons agent design is hard.
+
+## Two Nested MDPs
+
+Agentic loops contain two levels of MDP operating on different time scales.
+
+```text
+Outer-loop MDP (agent iteration level)
+  ┌──────┐  act·observe  ┌──────┐  act·observe  ┌──────┐
+  │ iter1│ ─────────────▶│ iter2│ ─────────────▶│ iterN│  ···
+  └──────┘               └──────┘               └──────┘
+         └─────────────────────────────────────────┘
+                        Reward R (sparse)
+
+Inside each iteration: token-level MDP
+  ┌────┐   ┌────┐   ┌────┐   ┌────┐
+  │ t₁ │──▶│ t₂ │──▶│ t₃ │──▶│ tₙ │  (hundreds to thousands of tokens)
+  └────┘   └────┘   └────┘   └────┘
+```
+
+**Outer-loop MDP**: Each iteration (tool call → result received → next decision) is one timestep. The horizon spans tens to hundreds of iterations, and reward is often granted only on task completion.
+
+**Inner token MDP**: Generating a single model response is itself an MDP. Each token selection is an action; the preceding token sequence is the state. The action space equals vocabulary size — tens of thousands of tokens. RL algorithms such as GRPO and PPO directly optimize the policy of this inner MDP (see Section 11-5).
+
+As loop engineers, we primarily deal with the **outer-loop MDP**. We do not train model weights; instead, we shape the policy `π` (= LLM + system prompt) implicitly by designing loop structure, prompts, and tool sets.
+
+## Sparse Rewards and the Credit Assignment Problem
+
+The moment we adopt the MDP view, a core difficulty immediately becomes apparent: **rewards are sparse**.
+
+Consider a coding agent: after 50 tool calls the test suite passes and the agent receives reward `+1`. But which of those 50 actions contributed to success, and which hurt? That is the **credit assignment problem**.
+
+```text
+Iteration:   1   2   3  ···  20  21  22  ···  49  50
+Action:      📝  🔍  ✏️  ···  ✅  ❌  🔄  ···  🐛  ✅
+Reward:       0   0   0  ···   0   0   0  ···   0  +1
+                                                    ↑
+                        Which of the 50 actions deserves credit?
+```
+
+Two practical strategies address sparse rewards.
+
+**Strategy A — Add dense (step-level) rewards**: Use intermediate signals at every iteration — LLM-judge scores, lint-error changes, test-coverage deltas — as step rewards. Credit assignment becomes easier, but the risk of **reward hacking** rises: the agent may optimize the proxy metric rather than the actual task (discussed in Section 8-2).
+
+**Strategy B — Use outcome-only evaluation**: Evaluate only the final state (test pass/fail) and delegate credit assignment to algorithms like GRPO (Section 11-5). This keeps the reward signal simple and clean at the cost of needing more samples. DeepSeek-R1-Zero is a landmark example: it used this strategy to let reasoning abilities emerge from pure RL alone.
+
+## A Design Checklist from the MDP Perspective
+
+This formalization is not a philosophical exercise — it is a practical design tool. When designing a loop, translate the MDP elements into concrete questions:
+
+| MDP Element | Design Question |
+|---|---|
+| State / Observation | Can the agent see the information it needs to complete the task? What tools expose hidden state? |
+| Action space | Is the tool set too large? Is the search space tractable? |
+| Transition function | How are tool failures, timeouts, and empty results handled? |
+| Reward function | Can success be verified mechanically? Are there reward-hacking paths? |
+| Policy | Do the system prompt, tool descriptions, and examples guide the desired behavior well enough? |
+| Horizon | Has a sufficient iteration limit been set for the task to complete? |
+
+The next chapter examines **DSPy**, arguably the most practical implementation of the MDP view. DSPy lets a compiler automatically optimize the prompt — the part of the policy we write by hand — so that the burden of manual policy design is sharply reduced.

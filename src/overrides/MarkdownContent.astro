@@ -1,0 +1,45 @@
+---
+import Default from '@astrojs/starlight/components/MarkdownContent.astro';
+
+const route = Astro.locals.starlightRoute;
+const data = route?.entry?.data as
+  | { references?: Array<string | { title: string; url: string; accessed?: string }> }
+  | undefined;
+const refs = data?.references ?? [];
+const isEn = route?.locale === 'en';
+const heading = isEn ? 'References' : '참고 자료';
+const accessedLabel = isEn ? 'accessed' : '접속';
+---
+
+<Default><slot /></Default>
+
+{
+  refs.length > 0 && (
+    <section class="chapter-references">
+      <h2 id="references">{heading}</h2>
+      <ul>
+        {refs.map((ref) =>
+          typeof ref === 'string' ? (
+            <li>
+              <a href={ref} target="_blank" rel="noopener noreferrer">
+                {ref}
+              </a>
+            </li>
+          ) : (
+            <li>
+              <a href={ref.url} target="_blank" rel="noopener noreferrer">
+                {ref.title}
+              </a>
+              {ref.accessed && (
+                <span style="color: var(--sl-color-gray-3);">
+                  {' '}
+                  — {accessedLabel} {ref.accessed}
+                </span>
+              )}
+            </li>
+          )
+        )}
+      </ul>
+    </section>
+  )
+}

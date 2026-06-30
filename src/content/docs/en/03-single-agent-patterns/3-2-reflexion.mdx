@@ -1,0 +1,153 @@
+---
+title: "Reflexion: Verbal Reinforcement Learning Loop"
+description: Learn how the Reflexion pattern converts failed attempts into verbal feedback stored in episodic memory, accumulating experience across trials to improve the next attempt.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Distinguish the outer trial loop from the inner ReAct loop in Reflexion"
+  - "Understand how verbal reinforcement learning operates without updating model weights"
+  - "Interpret the 91% pass@1 result on HumanEval in the context of the Reflexion setup"
+prerequisites:
+  - "3-1-react"
+estimated_minutes: 30
+references:
+  - title: "Shinn et al. — Reflexion: Language Agents with Verbal Reinforcement Learning (arXiv:2303.11366)"
+    url: "https://arxiv.org/abs/2303.11366"
+    accessed: "2026-06-30"
+  - title: "Yao et al. — ReAct: Synergizing Reasoning and Acting in Language Models (arXiv:2210.03629)"
+    url: "https://arxiv.org/abs/2210.03629"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## The Gap in ReAct: Failures Go Unlearned
+
+In the previous chapter, we identified "no automatic recovery from cascading errors" as one of ReAct's two core weaknesses. When the model takes a wrong action inside a loop, it is hard to course-correct. The deeper problem is that **the experience of a failed attempt is completely lost once the loop terminates.** The context window closes and nothing is carried forward.
+
+Humans learn differently. When you lose a chess game, you review which moves went wrong and bring those insights into the next game. Reflexion (Shinn et al., NeurIPS 2023) transplants this intuition into LLM agents. **Without updating any model weights**, it distills "what went wrong in the last attempt" into plain language and injects that summary into the next attempt's context. This approach is called **verbal reinforcement learning**.
+
+## The Double-Loop Structure
+
+Reflexion nests two loops inside each other.
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                  Reflexion: Double-Loop Structure                 │
+│                                                                  │
+│   Outer Loop (Trial Loop)                                        │
+│   ┌──────────────────────────────────────────────────────────┐   │
+│   │  Trial N                                                 │   │
+│   │  ┌─────────────────────────────────────────────────┐    │   │
+│   │  │  Inner Loop (ReAct Loop)                        │    │   │
+│   │  │  Thought → Action → Observation → ...           │    │   │
+│   │  │  → Final Answer / Failure                       │    │   │
+│   │  └─────────────────────────────────────────────────┘    │   │
+│   │           ▼                                              │   │
+│   │   Evaluator (external signal: test pass, score, etc.)   │   │
+│   │           ▼                                              │   │
+│   │   Reflector: "What went wrong?" → verbal reflection      │   │
+│   │           ▼                                              │   │
+│   │   Append reflection to Episodic Memory                   │   │
+│   └──────────────────────────────────────────────────────────┘   │
+│           ▼                                                      │
+│   Trial N+1 begins with Episodic Memory injected into context    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+The **inner loop** is the ReAct loop from the previous chapter, unchanged. The difference emerges in the **outer loop**. When the inner loop terminates (success or failure), an Evaluator scores the outcome, and a Reflector writes — in natural language — "what went wrong and what to try differently next time." This reflection is appended to **episodic memory**.
+
+When the next Trial begins, the model receives not only the original task but also **all reflections accumulated so far** as part of its context. This is how the agent "learns through context without changing its parameters."
+
+## Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class ReflexionAgent:
+    model: object
+    tools: dict
+    evaluator: object          # external function/model that judges success
+    max_trials: int = 3
+    max_steps_per_trial: int = 10
+    episodic_memory: list[str] = field(default_factory=list)
+
+    def _build_system_prompt(self) -> str:
+        base = "Solve the given task using the ReAct approach."
+        if not self.episodic_memory:
+            return base
+        reflections = "\n".join(
+            f"[Trial {i+1} reflection] {r}"
+            for i, r in enumerate(self.episodic_memory)
+        )
+        return f"{base}\n\nLessons learned from previous attempts:\n{reflections}"
+
+    def _reflect(self, task: str, trajectory: list[dict], outcome: str) -> str:
+        """Reflector: write a natural-language diagnosis of the failure."""
+        reflection_prompt = (
+            f"Task: {task}\n"
+            f"Outcome: {outcome}\n"
+            f"Trajectory summary (last 3 steps): {trajectory[-3:]}\n"
+            "What went wrong, and what should be done differently next time? "
+            "Write one concise paragraph."
+        )
+        return self.model.generate(
+            [{"role": "user", "content": reflection_prompt}]
+        ).text
+
+    def run(self, task: str) -> str:
+        for trial in range(self.max_trials):
+            system = self._build_system_prompt()
+            # Inner ReAct loop (reuses react_loop from the previous chapter)
+            trajectory, answer = react_loop_with_trajectory(
+                model=self.model,
+                tools=self.tools,
+                task=task,
+                system=system,
+                max_steps=self.max_steps_per_trial,
+            )
+
+            # External evaluation
+            success, outcome = self.evaluator(task, answer)
+            if success:
+                return answer
+
+            # Generate and store reflection
+            reflection = self._reflect(task, trajectory, outcome)
+            self.episodic_memory.append(reflection)
+
+        return f"Exceeded max trials ({self.max_trials}). Last answer: {answer}"
+```
+
+## Performance in Numbers: HumanEval 91%
+
+The Reflexion paper reported **91% pass@1** on the HumanEval coding benchmark — approximately 11 percentage points above the GPT-4 baseline of roughly 80% at the time. "pass@1" measures the fraction of problems solved correctly on a single attempt. However, keep in mind that the Reflexion number is the result after multiple trials, so it is not a direct apples-to-apples comparison.
+
+Coding tasks are a particularly good fit for Reflexion because unit tests provide a **clear external evaluator**: pass means success, fail means the error message is automatically fed to the Reflector. Domains where success can be verified mechanically are where Reflexion's effects are most pronounced.
+
+## Limitations and Caveats
+
+**Linear growth of episodic memory**: As reflections accumulate, the context grows longer — the same context-growth problem from ReAct, now recurring at the Trial level. In practice, keep only the most recent N reflections or compress the episodic memory into a running summary.
+
+**Dependency on an evaluator**: Reflexion does not work without an Evaluator. Open-ended tasks with no automatic quality signal — creative writing, for instance — are difficult to address. Using an LLM-as-Judge as the Evaluator is possible but introduces its own bias.
+
+**Quality of reflection**: If the Reflector makes the wrong diagnosis, subsequent trials drift in the wrong direction. If the model concludes "the search query was too long" when the real problem lay elsewhere, every following trial optimizes for the wrong fix.
+
+**No persistent knowledge**: Reflexion does not update parameters, so nothing is truly "learned" — when the context window closes, the experience is gone. For durable knowledge retention, consider serializing reflections to an external file, or look at prompt-level optimization approaches like DSPy (covered in chapter 11-2).
+
+## When to Choose Reflexion
+
+| Condition | Recommendation |
+|-----------|----------------|
+| Clear mechanical evaluator exists (tests, scores) | Strongly recommended |
+| Number of trials can be bounded to 3–5 | Good fit |
+| Task shows repeated similar failure patterns | Good fit |
+| Open-ended creative task | Poor fit |
+| Latency-sensitive real-time request | Poor fit (latency multiplied by trial count) |
+| Context window is very constrained | Use with caution |
+
+The next chapter covers a different strategy: Plan-and-Execute, which focuses on "decomposing the task before execution" to prevent failures rather than recovering from them afterward.

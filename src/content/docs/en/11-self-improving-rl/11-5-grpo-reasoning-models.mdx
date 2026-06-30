@@ -1,0 +1,117 @@
+---
+title: "GRPO and DeepSeek-R1: The Loop Inside the Model"
+description: How the GRPO algorithm enables reinforcement learning without a critic network, and how DeepSeek-R1-Zero made chain-of-thought reasoning emerge from pure RL.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Explain how GRPO replaces the PPO critic network with group-relative advantage"
+  - "Describe how CoT, backtracking, and self-correction emerged in DeepSeek-R1-Zero through pure RL training"
+  - "Understand the connection between the training loop and the inference loop, and discuss the implications for loop engineering"
+prerequisites:
+  - "11-1-loop-as-mdp"
+estimated_minutes: 32
+references:
+  - title: "DeepSeek-AI — DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning (arXiv:2501.12948)"
+    url: "https://arxiv.org/abs/2501.12948"
+    accessed: "2026-06-30"
+  - title: "Lilian Weng — LLM Powered Autonomous Agents"
+    url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
+    accessed: "2026-06-30"
+---
+
+## Improving Model Weights via a Loop
+
+In this section we have seen DSPy improve prompts, AlphaEvolve improve algorithmic solutions, and DGM improve scaffold code — all through loops. Now we go one level deeper: improving **model weights themselves** through a loop.
+
+Applying RL to train LLMs is not a new idea, but making it practical hit a key bottleneck. Algorithms like PPO (Proximal Policy Optimization) require a **separate critic network** that estimates the value of the current state. Training and maintaining this critic doubles the computational cost for models already gigantic. **GRPO (Group Relative Policy Optimization)**, used in DeepSeek-R1 (DeepSeek-AI, 2025), solves this problem elegantly.
+
+## GRPO: Relative Comparison Without a Critic
+
+GRPO's core idea is simple: for a single question, **sample multiple responses** and compute advantage from the **relative quality difference among those responses**.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                   GRPO vs PPO Comparison                        │
+└─────────────────────────────────────────────────────────────────┘
+
+PPO:
+  question q ──▶ generate response ──▶ critic(q, response) ──▶ V(state value)
+                                            ↑
+                               Separate critic network required (cost↑)
+
+GRPO:
+  question q ──▶ sample G responses simultaneously
+                 [response₁: r₁=0.8]
+                 [response₂: r₂=0.3]  ──▶ compute advantage from group mean
+                 [response₃: r₃=0.9]       aᵢ = (rᵢ - mean(r)) / std(r)
+                 [response₄: r₄=0.1]
+                 no critic needed ─────▶ policy update
+```
+
+Normalizing each response's reward within the group naturally produces a baseline. A reward above the group mean gives a positive advantage (selected more often); below the mean gives a negative advantage (selected less often). Stable training becomes possible without a critic.
+
+## DeepSeek-R1-Zero: Reasoning Emerges from Pure RL
+
+The DeepSeek-R1-Zero experiment, which used GRPO, is especially significant from a loop engineering perspective. The model was trained with **pure reinforcement learning, without any supervised fine-tuning (SFT)**. The reward consisted of only two signals:
+
+1. **Accuracy reward**: `+1` if the final answer to a math problem is correct, `0` otherwise
+2. **Format reward**: a small reward if the response uses `<think>...</think>` tags correctly
+
+Repeating training with this simple reward structure produced unexpected **emergent** behaviors:
+
+```text
+Early training  → simple direct answers
+
+Mid training    → step-by-step reasoning begins inside <think> tags
+
+Late training   → spontaneous chain-of-thought (CoT)
+                → backtracking after recognizing an incorrect path
+                → self-correction: "Wait, that approach is wrong. Let me try again."
+```
+
+Nobody taught CoT. Nobody specified backtracking. **These strategies appeared on their own** as the model sought to maximize accuracy reward. This is what emergence through pure RL means.
+
+## Connecting the Training Loop and the Inference Loop
+
+Every loop discussed in this course so far has been an **inference loop** — running a trained model, calling tools, observing, repeating. GRPO and DeepSeek-R1 deal with the **training loop**. How do these two loops connect?
+
+```text
+Training loop (training phase)
+  ┌───────────────────────────────────────────────┐
+  │  Sample question batch                        │
+  │      │                                        │
+  │      ▼                                        │
+  │  GRPO: generate G responses → compute reward  │
+  │        → update weights                       │
+  │      │                                        │
+  │  Repeat (thousands to tens of thousands steps)│
+  └──────────────────────┬────────────────────────┘
+                         │  training complete
+                         ▼
+                    Model weights (π*)
+                         │
+                         ▼
+Inference loop (serving phase)
+  ┌───────────────────────────────────────────────┐
+  │  user query → π* response → tool call → obs  │
+  │  → π* response again → tool call → ··· → done│
+  └───────────────────────────────────────────────┘
+```
+
+When the training loop produces a better policy `π*`, the inference loop executes that policy. The emergent CoT and backtracking in DeepSeek-R1-Zero produce **more accurate results in fewer outer-loop iterations** at inference time — because the model thinks more internally, it needs fewer external tool-call iterations.
+
+## Implications for Loop Engineers
+
+Most loop engineers do not train models directly. Even so, GRPO and DeepSeek-R1 offer principles worth internalizing.
+
+**Simplicity in reward design**: DeepSeek-R1-Zero's reward was remarkably simple — accuracy and format only. No dense step rewards, yet desired behaviors emerged. When designing loop validators, there is reason to **try the simplest, most explicit success criterion first** before adding complexity.
+
+**The value of sampling**: GRPO generates and compares multiple responses instead of committing to one. In loop design, strategies that explore multiple paths and select the best (Self-Consistency, Section 3-4) offer analogous benefits.
+
+**Structure that permits emergence**: Rather than specifying every behavior in detail, providing a clear objective and an appropriate search space can surface unexpectedly effective strategies. Over-specification crowds out the space where emergence could occur.
+
+This concludes Section 11 on self-improving RL. We moved from MDP formalization through prompt optimization (DSPy), evolutionary loops (AlphaEvolve), self-modifying agents (DGM), and finally to model-weight learning (GRPO / DeepSeek-R1) — a tour of the different levels at which a loop can improve itself. The next section returns to practice: how to actually build loops in the real world.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="11-self-improving-rl" lang="en" client:load />

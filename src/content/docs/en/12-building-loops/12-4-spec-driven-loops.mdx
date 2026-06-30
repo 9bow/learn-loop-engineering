@@ -1,0 +1,193 @@
+---
+title: "Spec-Driven Loop Design"
+description: Using a specs/ directory and AGENTS.md to supply stable context to loops, and closing the loop with mechanical verification.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Explain the spec-driven pattern of re-injecting a specs/ directory and fix_plan.md on every loop iteration"
+  - "Distinguish using AGENTS.md as a loop index (table of contents) from the 1000-page-manual anti-pattern"
+  - "Apply lint, CI, and tests as mechanical verifiers integrated into the loop"
+prerequisites:
+  - "12-3-ralph-technique"
+estimated_minutes: 30
+references:
+  - title: "OpenAI — Harness engineering"
+    url: "https://openai.com/index/harness-engineering/"
+    accessed: "2026-06-30"
+  - title: "Geoffrey Huntley — Ralph Wiggum as a software engineer"
+    url: "https://ghuntley.com/ralph/"
+    accessed: "2026-06-30"
+---
+
+## Beyond Ralph: Systematizing the Spec
+
+Ralph's `PROMPT.md` is simple and powerful. But as a project grows, multiple loops run concurrently, and team members join, a single file reaches its limits. **Spec-driven loop design** answers this scaling problem. The core idea is the same — re-inject stable context on every loop iteration — but the context is managed more systematically.
+
+## The specs/ Directory: Long-Term Memory for the Loop
+
+In spec-driven design, the `specs/` directory is the loop's stable source of truth. Where individual `PROMPT.md` files hold a single task, specs hold the **entire project's requirements, design decisions, and constraints** in an organized form.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                  Spec-Driven Loop File Structure                  │
+└─────────────────────────────────────────────────────────────────┘
+
+project-root/
+├── AGENTS.md              # Loop index: what lives where
+├── specs/
+│   ├── requirements.md    # Functional requirements (changes rarely)
+│   ├── architecture.md    # Design decisions and patterns (changes rarely)
+│   ├── conventions.md     # Code conventions and tool rules (changes rarely)
+│   └── fix_plan.md        # Current active fix plan (changes frequently)
+├── src/
+└── tests/
+```
+
+**Separation by change frequency** is the key. `requirements.md` and `architecture.md` are stable context that almost never changes — the loop always reads them to stay aware of invariant constraints. `fix_plan.md` holds the specific goal the current loop iteration must achieve and is updated with each iteration.
+
+## fix_plan.md: The Loop's Work Order
+
+`fix_plan.md` is a more structured version of Ralph's `PROMPT.md`. Instead of a flat instruction, it adopts a format that lets the agent track progress and update its status as work proceeds.
+
+```markdown
+# Current Fix Plan (fix_plan.md)
+
+## Goal
+Fix session expiry handling bug in the user authentication flow.
+
+## Current status
+- [x] Bug reproduced (tests/auth/session_test.py:42)
+- [x] Root cause identified: missing refresh_token validation
+- [ ] Fix TokenService.refresh()
+- [ ] Add test for session expiry scenario
+- [ ] Regression check of existing auth tests
+
+## Files to modify
+- src/services/token_service.py (lines 87-103)
+- tests/auth/session_test.py (add new test cases)
+
+## Completion criterion
+pytest tests/auth/ fully passes
+```
+
+As the agent works, it updates `[ ]` to `[x]`. Even if the loop is interrupted, the next iteration starts by reading `fix_plan.md`, understands how far work has progressed, and resumes from there. This gives the loop **resumability**.
+
+## AGENTS.md: Index, Not a 1000-Page Manual
+
+`AGENTS.md` is widely misused as "one giant document containing everything the agent should know." This is an **anti-pattern**.
+
+```text
+┌──────────────────────────────┬───────────────────────────────────┐
+│        Anti-pattern           │        Correct pattern            │
+├──────────────────────────────┼───────────────────────────────────┤
+│ Everything documented in     │ AGENTS.md serves only as an index │
+│ AGENTS.md (1000-page manual) │ (20-50 lines of pointers)         │
+│                              │                                   │
+│ Content: code conventions,   │ Content: "Code conventions →      │
+│ API docs, architecture,      │ see specs/conventions.md"         │
+│ team rules, deploy steps,    │ "Architecture → specs/arch.md"    │
+│ test procedures — all        │ "Current task → specs/fix_plan.md"│
+│ crammed into one file        │                                   │
+│                              │                                   │
+│ Problems: context waste,     │ Benefits: JIT-load only needed    │
+│ information burial,          │ files, easy to maintain,          │
+│ unmaintainable               │ change history trackable          │
+└──────────────────────────────┴───────────────────────────────────┘
+```
+
+`AGENTS.md` tells the agent "where to find what." The actual content lives in individual specs files. The agent loads the relevant file on demand — the same JIT retrieval principle from Section 5-5.
+
+```markdown
+# AGENTS.md — Correct Example
+
+## Working in this repository
+
+**Current task instructions**: specs/fix_plan.md
+**Project requirements**: specs/requirements.md
+**Code conventions**: specs/conventions.md
+**Architecture decisions**: specs/architecture.md
+
+## Completion standard
+All changes must be validated with `make test` before submission.
+There must be no lint errors: `make lint`
+
+## Environment
+Python 3.11, Poetry, pytest.
+When adding dependencies, update pyproject.toml.
+```
+
+## Mechanical Verification: Automation That Closes the Loop
+
+The completion of spec-driven loops is **automated verification**. Correctness of agent changes is judged by tools, not humans.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│               Mechanical Verification Pipeline                    │
+└─────────────────────────────────────────────────────────────────┘
+
+Agent modifies code
+      │
+      ▼
+① Linter (immediate)
+   make lint  or  ruff check .
+   Instant feedback on style / type errors
+      │
+      ▼
+② Unit tests (fast, ~tens of seconds)
+   pytest tests/unit/
+   Verify behavior of modified component
+      │
+      ▼
+③ Integration tests (slower, ~minutes)
+   pytest tests/integration/
+   Verify component interactions
+      │
+      ▼
+④ CI pipeline (optional, ~minutes to tens of minutes)
+   GitHub Actions / Jenkins
+   Full system verification
+      │
+      ▼
+All pass  → agent declares task complete
+Any fail  → error message added to context, fix and retry
+```
+
+**Standardizing verification commands in a Makefile or npm scripts** means the agent does not need to memorize which command to use for validation. A single `make test` in `AGENTS.md` is enough.
+
+## The Full Spec-Driven Loop Flow
+
+```text
+Loop starts
+  │
+  ▼
+Read AGENTS.md (learn the index)
+  │
+  ▼
+Read specs/fix_plan.md (current goal + progress state)
+  │
+  ▼
+JIT-load needed specs files (conventions.md, etc.)
+  │
+  ▼
+Modify code + update fix_plan.md checkboxes
+  │
+  ▼
+Run make lint && make test
+  │
+  ├── Fail → analyze error, fix, re-verify
+  └── Pass → mark fix_plan.md complete, end loop iteration
+  │
+  ▼
+(Outer while loop: next iteration or manual stop)
+```
+
+## When Spec-Driven Design Is Worth It
+
+If a simple Ralph loop is sufficient, there is no need to introduce a specs structure. The following situations raise the value of spec-driven design:
+
+- Multiple agent loops operating on the same repository
+- Loops that run over several days and need to be resumable
+- Teams that need to share the agent's scope and constraints
+- Change history required for compliance or audit purposes
+
+Spec-driven loops balance simplicity (Ralph) with structure (specs). The next chapter provides a framework for deciding **which loop pattern to choose** across all the patterns we have covered.

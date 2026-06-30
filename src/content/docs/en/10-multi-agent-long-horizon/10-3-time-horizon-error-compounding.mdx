@@ -1,0 +1,97 @@
+---
+title: "METR Time Horizon and Error Compounding"
+description: Analyze METR's findings on the doubling-every-seven-months law of AI task length capability, and examine the mathematics of how errors compound exponentially in long loops.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Explain METR's measurement methodology and the meaning of the seven-month doubling law"
+  - "Calculate the practical implications of the error compounding formula p^n"
+  - "Derive strategies that reduce error compounding in long-horizon loop design"
+prerequisites:
+  - "10-1-orchestrator-worker-production"
+estimated_minutes: 30
+references:
+  - title: "METR — Measuring AI Ability to Complete Long Tasks"
+    url: "https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/"
+    accessed: "2026-06-30"
+  - title: "METR — Measuring AI ability to complete long tasks (arXiv:2503.14499)"
+    url: "https://arxiv.org/abs/2503.14499"
+    accessed: "2026-06-30"
+---
+
+## METR's Question: How Long a Task Can an AI Complete?
+
+Most existing benchmarks for AI agent capability evaluate tasks that complete in minutes. But real software engineering, research analysis, and business process automation involve tasks that take hours, days, or weeks. METR (Model Evaluation and Threat Research) confronted this question directly by systematically measuring **the task length an AI can complete at 50% reliability**.
+
+The **measurement methodology** is straightforward. Task length is defined by how long a human expert takes to complete the same task. An AI agent is then given the identical task and checked for success on 50% or more of attempts. The "50% reliability completion length" is the core metric.
+
+## The Seven-Month Doubling Law
+
+METR's most striking finding is the growth rate of this capability. **The task length that AI can complete at 50% reliability is approximately doubling every seven months.** As of March 2025, Claude 3.7 Sonnet could complete approximately one-hour tasks at 50% reliability.
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│    Task Length vs. AI Success Rate (March 2025, approximate)     │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Under 4 min  ██████████████████████████████████  ~100%         │
+│  15 min       ████████████████████████████         ~80%          │
+│  1 hour       ████████████████                     ~50%          │
+│  4 hours      ████                                 <10%          │
+│  1 day+       ▌                                    <5%           │
+│                                                                  │
+│  Based on approximate patterns from METR's March 2025 research   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Tasks shorter than four minutes succeed at nearly 100%. Tasks exceeding four hours fall below 10%. To understand this sharp drop, you need to examine the **error compounding** mechanism.
+
+## The Mathematics of Compounding: p^n
+
+Assume each step of an agent loop succeeds with probability p. The probability that n consecutive steps all succeed is p^n.
+
+```text
+Step success rate p = 0.95 (95%):
+  10 steps:  0.95^10  ≈ 0.60  (60% success)
+  20 steps:  0.95^20  ≈ 0.36  (36% success)
+  50 steps:  0.95^50  ≈ 0.08  ( 8% success)
+  100 steps: 0.95^100 ≈ 0.006 ( 0.6% success)
+
+Step success rate p = 0.99 (99%):
+  10 steps:  0.99^10  ≈ 0.90  (90% success)
+  50 steps:  0.99^50  ≈ 0.61  (61% success)
+  100 steps: 0.99^100 ≈ 0.37  (37% success)
+  200 steps: 0.99^200 ≈ 0.13  (13% success)
+```
+
+The math is simple but the implication is striking. Even if individual step success rate is as high as 99%, overall success for loops of 100 or more steps drops substantially. If a four-hour task requires 200–300 steps, overall success probability can fall to single digits even at 99% per-step reliability.
+
+Note that "step" here is not just an agent iteration. Every individual reasoning decision, tool parameter choice, and file-navigation path decision within each iteration is an independent failure point.
+
+## Two Patterns of Error Compounding
+
+Errors compound in two ways.
+
+**Independent error accumulation**: Each step's error occurs independently of the previous step. Reading the wrong file, mistyping a function name, misinterpreting a test result — these stack up exactly as the p^n formula describes.
+
+**Dependent error propagation**: The more dangerous pattern occurs when an early error contaminates every subsequent step. If the problem is misunderstood at step 2, and every following step from step 3 onward is executed correctly but in the wrong direction, all those steps fail to contribute to a correct outcome. The system collapses far faster than p^n alone would predict. This is the **error cascade** pattern from chapter 7-2.
+
+## Design Implications: Strategies to Reduce Error Compounding
+
+If error compounding is unavoidable mathematics, loop engineers have two options: raise individual step success rate (p), or reduce the number of steps required (n).
+
+**Strategies to raise p**:
+- Break steps into the smallest, most explicit units possible. A single ambiguous large step has a lower success rate than several small, clear ones.
+- Design ACI (Agent-Computer Interface) tools to be unambiguous and minimize opportunities for error.
+- Insert verification checkpoints before important decisions to catch mistakes before they propagate.
+
+**Strategies to reduce n**:
+- Sub-agent partitioning: divide a long loop into multiple sub-agents, each with a small n.
+- Efficient context: use JIT (Just-in-Time) retrieval to eliminate unnecessary exploration steps.
+- Upfront planning: find the optimal path before execution begins, reducing trial-and-error iterations.
+
+## The Speed of Time Horizon Expansion
+
+If the seven-month doubling law continues, AI agents capable of reliably completing full-day tasks could emerge within two to three years. At that point loop engineering becomes even more critical: the longer the time horizon, the greater the impact of error compounding, and the ability to control it through engineering will determine whether a system succeeds.
+
+The next chapter examines what happens when error compounding reaches its extreme — the **meltdown** patterns that afflict long-horizon agent loops.

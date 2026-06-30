@@ -1,0 +1,158 @@
+---
+title: "Orchestrator-Workers: 동적 작업 분해"
+description: 오케스트레이터 LLM이 실행 중에 동적으로 서브태스크를 분해·할당하고, 워커들이 병렬로 수행한 결과를 종합하는 패턴을 살펴봅니다.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Orchestrator-Workers가 고정 파이프라인이나 단순 병렬화와 어떻게 다른지 설명할 수 있다"
+  - "오케스트레이터의 서브태스크 명세 4요소를 이해하고 실제 명세를 작성할 수 있다"
+  - "동기 병목 문제와 서브태스크 의존성 관리 방식을 이해한다"
+prerequisites:
+  - "4-1-prompt-chaining"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — How we built our multi-agent research system"
+    url: "https://www.anthropic.com/engineering/multi-agent-research-system"
+    accessed: "2026-06-30"
+---
+
+## 정적 파이프라인의 한계: 미리 알 수 없는 작업
+
+Prompt Chaining은 단계가 고정되어 있다. Sectioning은 분할 방법이 사전에 결정된다. 그런데 "이 기업에 대해 철저히 리서치하라"는 요청을 받았을 때, 어떤 서브태스크가 필요한지는 리서치를 시작하기 전까지 알 수 없다. 기업 규모, 산업, 공개 정보량에 따라 전혀 다른 서브태스크 세트가 필요하다.
+
+Orchestrator-Workers 패턴은 이 문제를 해결한다. **오케스트레이터(Orchestrator)**는 태스크를 받아 실행 중에 서브태스크를 동적으로 결정하고 워커에게 할당한다. **워커(Worker)**는 할당받은 단일 서브태스크를 독립적으로 수행한다. 오케스트레이터는 워커들의 결과를 수집해 다음 라운드의 서브태스크를 결정하거나 최종 답을 종합한다.
+
+이것은 단순 병렬화(Parallelization)와 다르다. Parallelization의 섹션들은 입력 전에 알 수 있지만, Orchestrator-Workers의 서브태스크들은 **이전 워커 결과에 의존해 동적으로 생성**된다.
+
+## 구조 다이어그램
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                  Orchestrator-Workers 구조                        │
+│                                                                  │
+│   태스크 입력                                                     │
+│        │                                                         │
+│        ▼                                                         │
+│  ┌──────────────────────────────────────┐                        │
+│  │          오케스트레이터               │                        │
+│  │  "어떤 서브태스크가 필요한가?"         │                        │
+│  │  서브태스크 A: 재무 데이터 수집        │                        │
+│  │  서브태스크 B: 경쟁사 분석            │                        │
+│  │  서브태스크 C: 뉴스 최신 동향 수집    │                        │
+│  └──────┬──────────────────────────────┘                        │
+│         │   할당                                                  │
+│    ┌────┴────┬──────────┬──────────┐                            │
+│    ▼         ▼          ▼          ▼                            │
+│  [워커 A]  [워커 B]   [워커 C]   (필요 시 추가)                  │
+│  재무 수집  경쟁사 분석  뉴스 수집                                │
+│    │         │          │                                        │
+│    └─────────┴──────────┘                                        │
+│                  │   결과 반환                                    │
+│                  ▼                                               │
+│  ┌──────────────────────────────────────┐                        │
+│  │          오케스트레이터 (재검토)       │                        │
+│  │  "추가 서브태스크가 필요한가?"         │                        │
+│  │  → 추가 필요: 서브태스크 D 생성       │                        │
+│  │  → 충분함: 최종 종합 수행             │                        │
+│  └──────────────────────────────────────┘                        │
+│                  │                                               │
+│                  ▼                                               │
+│             최종 결과                                             │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+## 서브태스크 명세의 4요소
+
+오케스트레이터가 워커에게 서브태스크를 전달할 때, 명세가 불완전하면 워커가 잘못된 방향으로 작업한다. Anthropic의 멀티에이전트 리서치 시스템 사례에서 도출된 좋은 서브태스크 명세의 4요소는 다음과 같다.
+
+| 요소 | 설명 | 예시 |
+|------|------|------|
+| 목표 (Goal) | 무엇을 달성해야 하는가 | "최근 3년 연간 매출 데이터 수집" |
+| 맥락 (Context) | 전체 태스크에서 이 서브태스크의 위치 | "재무 분석 리포트의 일부, CEO 보고용" |
+| 출력 형식 (Format) | 결과를 어떤 형태로 반환해야 하는가 | `JSON: {year, revenue, growth_rate}` |
+| 제약 (Constraints) | 범위, 도구 사용 제한, 신뢰할 수 있는 출처 | "공식 공시 자료만, 추정값 제외" |
+
+### Python 구현 예시
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+import asyncio
+from dataclasses import dataclass
+
+@dataclass
+class SubTask:
+    id: str
+    goal: str
+    context: str
+    output_format: str
+    constraints: str
+
+async def worker_execute(model, tools: dict, subtask: SubTask) -> dict:
+    """워커: 단일 서브태스크를 수행하고 결과 반환."""
+    prompt = (
+        f"목표: {subtask.goal}\n"
+        f"맥락: {subtask.context}\n"
+        f"출력 형식: {subtask.output_format}\n"
+        f"제약: {subtask.constraints}\n"
+    )
+    result = await run_react_loop_async(model, tools, prompt)
+    return {"subtask_id": subtask.id, "result": result}
+
+
+async def orchestrator_workers(
+    model, tools: dict, task: str, max_rounds: int = 3
+) -> str:
+    """
+    오케스트레이터가 동적으로 서브태스크를 생성·할당·종합.
+    """
+    completed_results = []
+
+    for round_num in range(max_rounds):
+        # 오케스트레이터: 현재 결과를 바탕으로 다음 서브태스크 결정
+        orch_prompt = (
+            f"태스크: {task}\n\n"
+            f"완료된 결과:\n{format_results(completed_results)}\n\n"
+            "추가로 필요한 서브태스크를 JSON 배열로 생성하라. "
+            "충분하면 빈 배열 [] 반환."
+        )
+        orch_response = model.generate(
+            [{"role": "user", "content": orch_prompt}]
+        )
+        subtasks = parse_subtasks(orch_response.text)
+
+        if not subtasks:
+            break  # 오케스트레이터가 "충분함" 판단
+
+        # 워커들에게 병렬 할당
+        round_results = await asyncio.gather(*[
+            worker_execute(model, tools, st) for st in subtasks
+        ])
+        completed_results.extend(round_results)
+
+    # 최종 종합
+    synthesis_prompt = (
+        f"태스크: {task}\n\n"
+        f"수집된 모든 결과:\n{format_results(completed_results)}\n\n"
+        "최종 종합 답변을 작성하라."
+    )
+    final = model.generate([{"role": "user", "content": synthesis_prompt}])
+    return final.text
+```
+
+## 동기 병목과 비용 현실
+
+Orchestrator-Workers는 강력하지만 두 가지 현실적 제약이 있다.
+
+**동기 병목(synchronous bottleneck)**: 오케스트레이터가 모든 워커의 결과를 기다린 뒤에야 다음 라운드를 시작할 수 있다. 가장 느린 워커 하나가 전체 라운드를 지연시킨다. 이를 완화하려면 워커에 타임아웃을 설정하고, 느린 워커의 결과를 포기하거나 별도 트랙으로 처리하는 설계가 필요하다.
+
+**비용 증가**: 오케스트레이터 자체가 LLM 호출이고, 워커도 각각 다수의 LLM 호출을 포함한다. 라운드가 늘어날수록 총 비용이 빠르게 증가한다. Anthropic의 멀티에이전트 리서치 시스템은 단일 대화 대비 약 15배의 토큰을 소비한다고 보고했다. 내부 평가에서 단일 Opus 대비 +90.2%의 성능 향상을 달성했지만, 이 비용을 감내할 가치가 있는 태스크에 한정해 사용해야 한다.
+
+## 언제 Orchestrator-Workers를 선택하는가
+
+서브태스크의 수와 종류가 **실행 전에 알 수 없을 때**, 그리고 **병렬 처리로 성능을 극대화하고 싶을 때** 이 패턴이 적합하다. 반대로 서브태스크가 명확하게 사전 정의 가능하다면 Sectioning이 더 단순하고 예측 가능하다.
+
+다음 챕터에서는 이 패턴을 품질 관점에서 보완하는 Evaluator-Optimizer를 살펴본다. 생성 결과를 별도 평가 LLM이 채점하고, 기준 미달 시 재생성하는 생성-평가-개선 루프다.

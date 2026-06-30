@@ -1,0 +1,77 @@
+---
+title: "From Single-Shot Prompting to the Loop"
+description: Why a single LLM call breaks down on complex tasks — and how iterative loops overcome those limits.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Identify at least three structural limits of single-shot prompting"
+  - "Understand the mechanism by which an iterative loop compensates for those limits"
+  - "Sketch the problem space that Loop Engineering addresses"
+prerequisites: []
+estimated_minutes: 28
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — An LLM agent runs tools in a loop to achieve a goal"
+    url: "https://simonwillison.net/2025/Sep/18/agents/"
+    accessed: "2026-06-30"
+  - title: "Yao et al. — ReAct: Synergizing Reasoning and Acting in Language Models (arXiv:2210.03629)"
+    url: "https://arxiv.org/abs/2210.03629"
+    accessed: "2026-06-30"
+---
+
+## The Single-Call Starting Point
+
+When you first start working with a large language model (LLM), the interaction is usually simple: **send one prompt, receive one response**. Ask a question, get an answer. This model of interaction — one input mapping to one output — is called **single-shot prompting**. For tasks like translation, summarization, or classification, it works remarkably well.
+
+The problems begin the moment a task demands **multiple steps of action and interaction with the outside world**. Consider the request "Fix the failing tests in this repository." The model must read source files, run the tests, inspect the output, apply a fix, and run the tests again. None of that can actually be *performed* in a single text generation. The model can produce plausible text about what it would do — but it has no way to verify whether that text is correct.
+
+## Three Structural Limits of Single-Shot Prompting
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│             Limits of Single-Shot Prompting              │
+├──────────────────────────────────────────────────────────┤
+│ ① No action     Model outputs text only — cannot run     │
+│                 tools or observe the real world          │
+│ ② No feedback   No external signal to verify correctness │
+│ ③ Step collapse  Multi-step reasoning crammed into one   │
+│                 forward pass — errors compound silently  │
+└──────────────────────────────────────────────────────────┘
+```
+
+1. **No ability to act** — A model's output is a token sequence. Actually modifying a file, calling an API, or running a search requires something *outside* the model to carry out those actions.
+
+2. **No feedback signal** — Single-shot has no external signal telling the model whether its answer is correct. The result is a well-known failure mode: the model produces a **confidently wrong** answer with no mechanism to catch it.
+
+3. **Step collapse** — Forcing a twenty-step problem into one generation means that a single flawed reasoning step contaminates every subsequent one. There is no checkpoint, no recovery.
+
+## The Loop: Act, Observe, Reason Again
+
+The fix is conceptually simple: **instead of calling the model once and stopping, feed the result of each tool execution back into the model and repeat.** This is the **agentic loop**. Anthropic defines an agent as *"an LLM using tools in a loop based on environmental feedback."* Simon Willison condenses it further: *"An LLM agent runs tools in a loop to achieve a goal."*
+
+```python
+# Single-shot: one call and done
+answer = model.generate(prompt)
+
+# Loop: tool results fed back, repeated
+messages = [user(task)]
+while True:
+    response = model.generate(messages, tools=tools)
+    if response.stop_reason == "end_turn":
+        break                        # model declares completion
+    for call in response.tool_calls:
+        result = run_tool(call)      # real action in the world
+        messages.append(tool_result(result))  # observation added to context
+```
+
+This short loop addresses all three limits precisely. `run_tool` enables **action**. The tool result provides **feedback**. The iteration dissolves **step collapse** — each loop turn is one focused step, not twenty crammed into one.
+
+## What Loop Engineering Actually Covers
+
+Running the loop above as-is quickly surfaces a new set of problems. What if the loop never stops? What if the same mistake repeats indefinitely? What if the context window grows so long that the model misses critical information? What if costs spiral? What if a tool result contains malicious instructions?
+
+**Loop Engineering is the discipline of answering every one of those questions.** Making a loop *run* is easy. Making a loop that is *trustworthy, stoppable, affordable, and secure* is hard. The remaining chapters on this site address exactly that hard part.
+
+The next chapter takes a sharper look at the word "agent" — establishing a precise definition that lets us say, clearly, what is an agent and what is not.

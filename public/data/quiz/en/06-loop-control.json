@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "Which of the following is NOT one of the four types of loop termination conditions in an agentic loop?",
+    "options": [
+      "Semantic completion",
+      "Iteration limit",
+      "Resource cap",
+      "Model version replacement"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 6-1 states that the four types of loop termination conditions are semantic completion, iteration limit, resource cap, and no-progress detection. 'Model version replacement' does not belong."
+  },
+  {
+    "id": "q2",
+    "question": "Why should you not rely solely on stop_reason == \"end_turn\"?",
+    "options": [
+      "Because end_turn signals an error",
+      "Because 'premature success' can occur — the model may declare completion even when it has not actually finished",
+      "Because end_turn always means the loop should restart",
+      "Because not all LLM APIs support stop_reason"
+    ],
+    "answer": 1,
+    "explanation": "Chapters 6-1 and 6-2 explain that even when the model returns end_turn, you cannot confirm whether the goal was actually achieved without a separate evaluation, and the premature success failure mode is common."
+  },
+  {
+    "id": "q3",
+    "question": "What is the 'Generator-Verifier Gap'?",
+    "options": [
+      "The difference in parameter size between the generating model and the verifying model",
+      "The asymmetry where LLMs excel at generating plausible text but find it harder to verify whether their own generation is correct",
+      "The API latency difference between two models",
+      "The gap between generation speed and verification speed"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 6-2 explains that the Generator-Verifier Gap describes the core asymmetry where LLMs are strong at generation but weak at self-verification."
+  },
+  {
+    "id": "q4",
+    "question": "In Zheng et al. (NeurIPS 2023) research on LLM-as-Judge, what agreement rate with human preferences was reported for a GPT-4 judge?",
+    "options": [
+      "Over 60%",
+      "Over 70%",
+      "Over 80%",
+      "Over 95%"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 6-3 states that Zheng et al.'s research achieved over 80% agreement with human preference judgments when using GPT-4 as a judge."
+  },
+  {
+    "id": "q5",
+    "question": "Among the three scoring approaches in LLM-as-Judge, which is most appropriate when the correct answer is known?",
+    "options": [
+      "Single scoring",
+      "Pairwise comparison",
+      "Reference-based scoring",
+      "Ensemble scoring"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 6-3 explains that reference-based scoring is the most accurate approach for cases where the correct answer (reference) is known — the judge compares the generation to the reference and scores it."
+  },
+  {
+    "id": "q6",
+    "question": "How can Position Bias in LLM-as-Judge be mitigated?",
+    "options": [
+      "Use a larger model as the judge",
+      "Evaluate in both orders (A→B and B→A) and only adopt results that are consistent",
+      "Constrain both responses to the same length",
+      "Avoid using a model from the same family as the judge"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 6-3 recommends swapping the order of two responses and evaluating twice to mitigate Position Bias, then only declaring a winner when both results agree."
+  },
+  {
+    "id": "q7",
+    "question": "In a test-driven agentic loop, what is the natural termination condition?",
+    "options": [
+      "When the model declares 'complete'",
+      "When the maximum iteration limit is reached",
+      "When all tests pass",
+      "When the cost limit is reached"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 6-4 explains that test-driven loops use test results as a deterministic verifier, and the natural termination condition is when all tests pass."
+  },
+  {
+    "id": "q8",
+    "question": "What is the concept of an 'autonomy slider' in Human-in-the-Loop?",
+    "options": [
+      "A temperature parameter that adjusts the model's creativity level",
+      "A design-time concept of choosing the agent's autonomy level along a spectrum from manual approval of every step to full automation",
+      "A parameter that determines the number of parallel agents",
+      "A setting that dynamically adjusts context window size"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 6-5 explains that the autonomy slider is a concept for choosing — at design time — from four levels: 'approve every step → approve only risky actions → review after completion → fully automated.'"
+  },
+  {
+    "id": "q9",
+    "question": "Which loop termination type requires 'no-progress detection'?",
+    "options": [
+      "Semantic completion",
+      "Iteration limit",
+      "Resource cap",
+      "No-progress"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 6-1 explains that detecting a doom loop where output is identical across N consecutive iterations or there is no progress toward the goal is the no-progress termination type."
+  },
+  {
+    "id": "q10",
+    "question": "What is the key function in LangGraph for implementing Human-in-the-Loop?",
+    "options": [
+      "pause()",
+      "interrupt()",
+      "checkpoint()",
+      "approve()"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 6-5 states that LangGraph provides the interrupt() function to pause graph execution at a point requiring human approval and resume it afterward."
+  },
+  {
+    "id": "q11",
+    "question": "What is the 'Self-enhancement Bias' of LLM-as-Judge?",
+    "options": [
+      "A bias where the model rates longer answers as better",
+      "A bias toward the response presented first",
+      "A tendency of the judge model to favor responses from the same model family or company",
+      "A tendency to prefer code responses over natural language responses"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 6-3 explains that Self-enhancement Bias is the tendency for an LLM judge to prefer responses generated by models from the same family."
+  },
+  {
+    "id": "q12",
+    "question": "What is a prerequisite for Human-in-the-Loop to work effectively?",
+    "options": [
+      "A fast network connection",
+      "Guaranteed idempotency of actions",
+      "24-hour human monitoring",
+      "Use of a specific framework (e.g., LangGraph)"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 6-5 explains that for Human-in-the-Loop to intervene and resume mid-execution, idempotency — guaranteeing the same result if an already-executed action is re-executed — is a prerequisite."
+  },
+  {
+    "id": "q13",
+    "question": "What loop control mechanism do SWE-agent and Codex share?",
+    "options": [
+      "LLM-as-Judge evaluation",
+      "A test-driven loop that uses test suite passage as the termination condition",
+      "Human approval gates",
+      "Self-Consistency voting"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 6-4 states that both SWE-agent and Codex adopt a test-driven loop approach that uses test results as the deterministic termination condition."
+  }
+]

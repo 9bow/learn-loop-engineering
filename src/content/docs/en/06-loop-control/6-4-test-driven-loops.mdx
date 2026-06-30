@@ -1,0 +1,149 @@
+---
+title: "Test-Driven Agentic Loops"
+description: Using a test runner as the deterministic verifier in a loop — a structure where tests are the exit condition, and the loop cannot terminate until all tests pass.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Describe and implement the structure of an agentic loop that uses a test runner as its verifier"
+  - "Apply the feature list pattern — linking test-pass status to stopping conditions"
+  - "Understand how SWE-agent and Codex leverage test-driven loops"
+prerequisites:
+  - "6-2-generator-verifier-gap"
+estimated_minutes: 28
+references:
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Yang et al. — SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering (arXiv:2405.15793)"
+    url: "https://arxiv.org/abs/2405.15793"
+    accessed: "2026-06-30"
+  - title: "OpenAI — Unrolling the Codex agent loop"
+    url: "https://openai.com/index/unrolling-the-codex-agent-loop/"
+    accessed: "2026-06-30"
+---
+
+## Tests Tell the Truth
+
+The defining strength of a coding agent is that verification is deterministic. Whether code is right or wrong is not a matter of judgment — **run the tests and they either pass or fail**. This binary clarity integrates perfectly with the agentic loop. Changing the stopping condition from "when the model declares it done" to "when all tests pass" closes the Generator-Verifier Gap (Chapter 6-2) in a fully deterministic way.
+
+This is the core idea of the **test-driven agentic loop**: the agent edits code, runs tests, reads the results, and edits again — repeating this cycle. **The loop cannot terminate until all tests pass**.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│            Test-Driven Agentic Loop Structure                 │
+│                                                              │
+│   [Goal: implement feature + pass all tests]                 │
+│                                                              │
+│   ┌─────────────────────────────────────────┐               │
+│   │  1. Edit code (Edit Tool)               │               │
+│   │         ↓                               │               │
+│   │  2. Run tests                           │               │
+│   │         ↓                               │               │
+│   │  3. Analyze results                     │               │
+│   │         ↓                               │               │
+│   │  All tests pass? ─── Yes ──→ [Exit: success] │          │
+│   │         │                               │               │
+│   │         No                              │               │
+│   │         ↓                               │               │
+│   │  4. Diagnose failure + plan fix         │               │
+│   │         └───────────────────────────────┘ (repeat)     │
+│   │                                                         │
+│   max_iterations exceeded → [Exit: failure]                 │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## The Feature List Pattern
+
+Tracking individual **features** and their test-pass status — rather than running a single monolithic test — enables more fine-grained control.
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+from dataclasses import dataclass
+
+@dataclass
+class Feature:
+    name: str
+    test_command: str
+    passed: bool = False
+    attempts: int = 0
+
+
+def run_test_driven_loop(features: list[Feature], max_iters: int = 50):
+    """
+    Loop exits only when all features pass their tests.
+    Tests are the exit condition; the model's own declaration is secondary.
+    """
+    messages = build_initial_context(features)
+
+    for i in range(max_iters):
+        # Identify still-failing features
+        pending = [f for f in features if not f.passed]
+        if not pending:
+            return {"status": "success", "iterations": i}
+
+        # Give the agent the current feature status
+        status_report = format_feature_status(features)
+        messages.append({
+            "role": "user",
+            "content": (
+                f"Current status:\n{status_report}\n\n"
+                f"Fix the next failing feature: {pending[0].name}"
+            )
+        })
+
+        response = model.generate(messages, tools=CODE_TOOLS)
+
+        # Execute code-editing tools
+        for call in response.tool_calls:
+            result = run_tool(call)
+            messages.append(tool_result(result))
+
+        # Run tests for all features regardless of what the agent said
+        for feature in features:
+            test_result = run_test(feature.test_command)
+            feature.passed = test_result.exit_code == 0
+            feature.attempts += 1
+
+        # No-progress detection: same failure pattern for 3 consecutive iterations
+        if no_progress(features, window=3):
+            return {"status": "stuck", "pending": pending}
+
+    return {
+        "status": "max_iters_exceeded",
+        "pending": [f for f in features if not f.passed]
+    }
+
+
+def format_feature_status(features: list[Feature]) -> str:
+    lines = []
+    for f in features:
+        status = "PASS" if f.passed else "FAIL"
+        lines.append(f"- [{status}] {f.name} (attempts: {f.attempts})")
+    return "\n".join(lines)
+```
+
+## SWE-agent and Codex in Practice
+
+Examining how real coding agents implement this pattern brings the design principles into concrete focus.
+
+**SWE-agent** (Yang et al., NeurIPS 2024) is an agent that solves real GitHub issues. The agent repeatedly explores repository files, edits code, and runs tests. The evaluation criterion is "does the patch cause the SWE-bench test suite to pass?" — so test passage is the definition of task completion.
+
+**The Codex loop** (OpenAI) operates on a plan-execute-verify-fix cycle. The Codex-1 model was trained with reinforcement learning on the paradigm of "loop until the tests pass." This means test passing is not just a verification tool — it is **the learning signal itself**.
+
+Anthropic's long-running agent guide recommends the same principle. To prevent premature success, the harness should independently verify task completion even when the agent declares it finished.
+
+## Handling Tasks Without Tests
+
+Not every task is verifiable through tests. Documentation writing, refactoring quality, and UX improvements are difficult to measure as pass/fail. Alternative approaches for these cases:
+
+| Situation | Alternative Verification |
+|-----------|------------------------|
+| Code style / lint | Linter exit code (deterministic) |
+| Documentation completeness | Checklist-based confirmation |
+| Complex refactoring | Full existing test suite pass + LLM-as-Judge |
+| Pure language tasks | LLM-as-Judge (Chapter 6-3) |
+
+The core lesson of test-driven loops is: **externalize and determinize the verification signal**. A stopping condition that depends solely on the model's internal judgment is fragile. Binary (pass/fail) signals from external tools — test runners, linters, CI pipelines — give the loop the most reliable control possible.
+
+Tests pass; the loop stops. That simple principle is the foundation that makes coding agents trustworthy.

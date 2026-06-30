@@ -1,0 +1,198 @@
+---
+title: "사전 행동 인가(Pre-Action Authorization)"
+description: 에이전트가 도구를 실행하기 전, 추론이 아닌 결정론적 로직으로 권한을 검사하는 사전 행동 인가 패턴을 살펴봅니다.
+sidebar:
+  order: 3
+learning_objectives:
+  - "추론 기반 권한 검사와 결정론적 인가 로직의 차이를 설명할 수 있다"
+  - "사전 행동 인가 레이어를 에이전틱 루프에 삽입하는 방법을 구현할 수 있다"
+  - "모델이 안전 제약을 추론으로 우회하지 못하도록 설계하는 원칙을 이해한다"
+prerequisites:
+  - "8-1-prompt-injection"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Writing effective tools for AI agents"
+    url: "https://www.anthropic.com/engineering/writing-tools-for-agents"
+    accessed: "2026-06-30"
+  - title: "MCP Specification 2025-11-25"
+    url: "https://modelcontextprotocol.io/specification/2025-11-25"
+    accessed: "2026-06-30"
+---
+
+## 모델에게 안전을 맡기지 마라
+
+에이전트 루프에서 권한 제어를 어떻게 구현할까? 가장 직관적인 방법은 시스템 프롬프트에 "이런 행동은 하지 마라"고 적는 것이다. 그런데 이 방법에는 치명적인 약점이 있다. **모델이 자신의 추론으로 그 제약을 우회할 수 있다.**
+
+실제로 발생하는 패턴:
+- 시스템 프롬프트: "프로덕션 데이터베이스에 쓰지 마세요"
+- 모델의 추론: "현재 상황이 긴급하고, 사용자가 원하는 것을 달성하려면 반드시 필요하며, 이후에 되돌릴 수 있으므로... 예외적으로 허용"
+- 결과: 프로덕션 데이터베이스에 쓰기 실행
+
+모델은 추론 능력이 뛰어날수록 "예외"를 정당화하는 논리도 더 정교해진다. 안전 제약을 추론 레이어에만 의존하면, 모델의 추론 능력이 바로 그 제약의 취약점이 된다.
+
+## 추론과 인가의 분리
+
+**사전 행동 인가(Pre-Action Authorization)** 패턴의 핵심 아이디어는 다음과 같다.
+
+> 모델이 "이 행동을 해야 한다"고 결정하는 것(추론)과, 실제로 그 행동이 허용되는지 판단하는 것(인가)을 분리한다. 인가는 반드시 **결정론적(deterministic)** 이고 **비-LLM** 코드로 구현한다.
+
+```text
+기존 구조 (추론에 인가 의존):
+  사용자 요청 ──▶ 모델 추론 ──▶ 도구 실행
+                     │
+                 "이 제약은 예외"라고 추론 가능
+                 
+사전 행동 인가 구조 (추론과 인가 분리):
+  사용자 요청 ──▶ 모델 추론 ──▶ 도구 호출 요청 ──▶ 인가 레이어 ──▶ 도구 실행
+                                                        │
+                                              결정론적 코드
+                                              (모델이 우회 불가)
+```
+
+인가 레이어는 모델의 추론 결과를 받아서 허용/거부를 판단하지만, 그 판단 자체는 모델이 관여하지 않는 코드로 작성된다.
+
+## 인가 레이어 구현
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+from dataclasses import dataclass
+from typing import Literal
+
+@dataclass
+class AuthorizationResult:
+    decision: Literal["allow", "deny", "require_human_approval"]
+    reason: str
+
+class PreActionAuthorizer:
+    """
+    도구 실행 전 결정론적 권한 검사.
+    모델 추론과 완전히 분리된 코드로 구현.
+    """
+
+    def __init__(self, policy: dict):
+        self.policy = policy
+
+    def authorize(self, tool_name: str, arguments: dict, context: dict) -> AuthorizationResult:
+        """
+        도구 이름과 인수를 정책과 대조하여 허용/거부 결정.
+        LLM을 호출하지 않음 — 순수 코드로만 구현.
+        """
+        # 1. 블랙리스트 검사 (항상 거부)
+        if tool_name in self.policy.get("blacklist", []):
+            return AuthorizationResult(
+                "deny",
+                f"'{tool_name}'은 정책상 허용되지 않습니다"
+            )
+
+        # 2. 고위험 인수 패턴 검사
+        if tool_name == "write_file":
+            path = arguments.get("path", "")
+            if any(path.startswith(p) for p in self.policy.get("protected_paths", [])):
+                return AuthorizationResult(
+                    "require_human_approval",
+                    f"보호된 경로 '{path}'에 쓰기는 인간 승인이 필요합니다"
+                )
+
+        # 3. 환경 기반 검사
+        if context.get("environment") == "production":
+            if tool_name in self.policy.get("production_restricted", []):
+                return AuthorizationResult(
+                    "deny",
+                    "프로덕션 환경에서는 허용되지 않는 작업입니다"
+                )
+
+        return AuthorizationResult("allow", "")
+
+
+def run_tool_with_authorization(tool_name, arguments, authorizer, context):
+    """도구 실행 전 인가 검사를 거치는 래퍼."""
+    result = authorizer.authorize(tool_name, arguments, context)
+
+    if result.decision == "deny":
+        return {"error": f"거부됨: {result.reason}"}
+    elif result.decision == "require_human_approval":
+        approved = request_human_approval(tool_name, arguments, result.reason)
+        if not approved:
+            return {"error": "인간이 실행을 거부했습니다"}
+
+    return execute_tool(tool_name, arguments)
+```
+
+이 구조에서 모델은 도구 호출을 "요청"할 뿐이다. 실제 실행 결정은 `PreActionAuthorizer`라는 코드가 내린다. 모델이 아무리 정교한 논리로 "이 행동을 해야 한다"고 추론해도, 정책이 거부하면 실행되지 않는다.
+
+## 정책 설계 원칙
+
+인가 정책은 명확하고 검증 가능해야 한다.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│              인가 정책 설계 원칙                               │
+├──────────────────────────────────────────────────────────────┤
+│ 1. 명시적 허용 목록 우선                                       │
+│    "모든 것을 허용하고 위험한 것만 거부" 대신                   │
+│    "허용 목록에 있는 것만 허용"                                │
+│                                                              │
+│ 2. 고위험 행동 = 인간 승인 필수                                │
+│    삭제, 발송, 금전 거래, 외부 공개 등                         │
+│                                                              │
+│ 3. 환경 인식                                                  │
+│    개발 환경에서 허용된 것이 프로덕션에서는 거부될 수 있음      │
+│                                                              │
+│ 4. 인수 수준 검사                                             │
+│    도구 이름뿐 아니라 구체적 인수도 검사                       │
+│    예: delete_file("/tmp/x") vs delete_file("/prod/db")      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## MCP 환경에서의 사전 인가
+
+Model Context Protocol(MCP)에서는 클라이언트(에이전트 하네스)가 서버가 제공하는 도구 목록을 받아 실행한다. MCP 명세는 클라이언트가 도구 실행 전에 **사용자의 명시적 동의**를 받을 것을 요구한다. 이는 사전 행동 인가 패턴을 프로토콜 수준에서 강제하는 것이다.
+
+실제 구현에서 MCP 클라이언트는 각 도구 호출을 인가 레이어를 통해 처리해야 한다. 인가 없이 MCP 서버의 도구를 자동으로 실행하는 구현은 8-1챕터에서 다룬 프롬프트 인젝션 위험을 고스란히 안게 된다.
+
+## 인가와 감사 로그의 연계
+
+사전 행동 인가는 **감사 로그(audit log)** 와 함께 설계되어야 한다. 모든 인가 결정 — 허용, 거부, 인간 승인 요청 — 을 불변 로그에 기록한다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+import json
+from datetime import datetime, timezone
+
+def log_authorization_event(tool_name, arguments, result, session_id):
+    """인가 결정을 불변 감사 로그에 기록."""
+    event = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "session_id": session_id,
+        "tool": tool_name,
+        "arguments_hash": hash_arguments(arguments),  # 민감 정보 보호
+        "decision": result.decision,
+        "reason": result.reason
+    }
+    append_to_immutable_log(json.dumps(event))
+```
+
+나중에 에이전트가 예상치 못한 행동을 했을 때, 감사 로그로 정확히 어떤 인가 결정이 내려졌는지 재구성할 수 있다. 이것이 다음 챕터에서 다루는 경계된 자율성의 핵심 구성 요소다.
+
+## 인가 레이어의 위치
+
+마지막으로, 인가 레이어는 **루프와 도구 사이**에 위치해야 한다. 루프 바깥(시스템 프롬프트)에만 있거나 도구 내부에만 있으면 충분하지 않다.
+
+```text
+올바른 인가 레이어 위치
+
+  에이전트 루프
+       │
+       ▼ 도구 호출 요청
+  ┌─ 인가 레이어 ─┐  ← 여기에 위치
+  │  결정론적 검사 │
+  └───────────────┘
+       │
+       ▼ 허용된 경우만
+  도구 실행 (샌드박스)
+```
+
+다음 챕터에서는 인가를 포함한 전체 자율성 범위를 정의하고, 시스템 수준에서 에이전트 행동을 관찰하는 **경계된 자율성과 감사 로깅**을 다룬다.

@@ -1,0 +1,228 @@
+---
+title: "경계된 자율성과 감사 로깅"
+description: 에이전트의 자율성을 명확한 경계 안에 가두고, 모든 행동을 불변 감사 로그에 기록하여 사후 검증과 개입이 가능한 시스템을 설계합니다.
+sidebar:
+  order: 4
+learning_objectives:
+  - "경계된 자율성(bounded autonomy)의 설계 원칙과 자율성 스펙트럼을 설명할 수 있다"
+  - "최소 권한, 단기 토큰, 불변 감사 로그를 조합한 보안 아키텍처를 설계할 수 있다"
+  - "불확실성 서페이싱(uncertainty surfacing)이 안전한 에이전트 설계에 기여하는 이유를 이해한다"
+prerequisites:
+  - "8-1-prompt-injection"
+estimated_minutes: 34
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "OpenTelemetry — AI Agent Observability"
+    url: "https://opentelemetry.io/blog/2025/ai-agent-observability/"
+    accessed: "2026-06-30"
+---
+
+## 자율성은 설계로 제한한다
+
+에이전트에게 자율성을 부여하는 것은 강력한 능력을 가진 존재에게 행동권을 주는 것이다. 자율성이 클수록 에이전트가 더 많은 작업을 독립적으로 처리할 수 있다. 그러나 자율성이 무한하면 에이전트의 실수나 오작동이 제어되지 않은 방식으로 퍼진다.
+
+**경계된 자율성(bounded autonomy)** 은 이 트레이드오프를 명시적으로 설계 결정으로 다루는 패턴이다. "에이전트가 무엇을 할 수 있는가"를 구현 이후에 제한하는 것이 아니라, 시스템 설계 단계에서 자율성의 경계를 정의하고 이를 코드로 강제한다.
+
+Anthropic은 에이전트 루프 설계에서 가시성(visibility)과 개입 가능성(controllability)을 핵심 원칙으로 강조한다. 언제든 에이전트가 무엇을 하고 있는지 볼 수 있어야 하고, 필요하면 멈출 수 있어야 한다.
+
+## 자율성 스펙트럼
+
+6-5챕터에서 살펴본 자율성 스펙트럼을 보안 관점에서 다시 살펴보자.
+
+```text
+자율성 스펙트럼 (보안 리스크 관점)
+
+  낮은 자율성                                      높은 자율성
+  ─────────────────────────────────────────────▶
+  
+  매 단계 승인    주요 단계 승인    마일스톤 승인    완전 자동
+  
+  보안 리스크: 낮음 ◀───────────────────────────▶ 높음
+  효율성:      낮음 ◀───────────────────────────▶ 높음
+  
+  최적 지점: 작업 특성과 위험도에 따라 다름
+             고위험 행동 = 낮은 자율성
+             저위험 행동 = 높은 자율성
+```
+
+경계된 자율성의 핵심은 모든 작업에 동일한 자율성 수준을 적용하는 것이 아니라, **행동의 위험도와 가역성에 따라 동적으로 자율성 수준을 결정**하는 것이다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+from enum import Enum
+
+class AutonomyLevel(Enum):
+    FULL_AUTO = "full_auto"          # 자동 실행
+    NOTIFY_ONLY = "notify_only"      # 실행 후 알림
+    REQUIRE_APPROVAL = "approval"    # 실행 전 승인
+    BLOCKED = "blocked"              # 항상 차단
+
+def get_autonomy_level(tool_name: str, arguments: dict, environment: str) -> AutonomyLevel:
+    """행동의 위험도에 따라 자율성 수준 결정."""
+
+    # 읽기 전용 작업 — 완전 자동
+    if tool_name in {"read_file", "search_web", "get_status"}:
+        return AutonomyLevel.FULL_AUTO
+
+    # 쓰기 작업 — 환경에 따라 다름
+    if tool_name == "write_file":
+        if environment == "sandbox":
+            return AutonomyLevel.FULL_AUTO
+        elif environment == "staging":
+            return AutonomyLevel.NOTIFY_ONLY
+        else:  # production
+            return AutonomyLevel.REQUIRE_APPROVAL
+
+    # 삭제/발송/금전 거래 — 항상 승인 필요
+    if tool_name in {"delete_file", "send_email", "process_payment"}:
+        return AutonomyLevel.REQUIRE_APPROVAL
+
+    # 정책에 없는 도구 — 차단
+    return AutonomyLevel.BLOCKED
+```
+
+## 최소 권한과 단기 토큰
+
+경계된 자율성을 기술적으로 강제하는 두 가지 수단이 **최소 권한(least privilege)** 과 **단기 토큰(short-lived tokens)** 이다.
+
+최소 권한은 이미 7-5챕터와 8-3챕터에서 다뤘다. 에이전트에게 지금 당장 필요한 권한만 부여한다. 단기 토큰은 이를 시간 차원으로 확장한다. 에이전트가 획득한 자격증명(credentials)이 짧은 시간 안에 만료되도록 설계하면, 탈취된 자격증명의 사용 가능 시간이 제한된다.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│              최소 권한 + 단기 토큰 조합                        │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  에이전트 시작                                                 │
+│      │                                                       │
+│      ▼                                                       │
+│  현재 작업에 필요한 최소 권한 식별                             │
+│      │                                                       │
+│      ▼                                                       │
+│  단기 토큰 발급 (예: 1시간 유효)                               │
+│      │                                                       │
+│      ▼                                                       │
+│  작업 수행 (만료 전)                                           │
+│      │                                                       │
+│      ▼                                                       │
+│  토큰 만료 → 재발급 시 재인가 필요                             │
+│                                                              │
+│  장점: 토큰 탈취 시 피해 시간이 제한됨                         │
+│        작업 완료 후 자동으로 권한 소멸                          │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## 불변 감사 로그
+
+경계된 자율성 시스템의 필수 구성 요소는 **불변 감사 로그(immutable audit log)** 다. 에이전트가 수행한 모든 행동, 내린 모든 결정, 발생한 모든 오류를 변경 불가능한 형태로 기록한다.
+
+"불변"이 핵심이다. 에이전트가 로그를 수정하거나 삭제할 수 있다면, 문제가 발생했을 때 로그를 믿을 수 없다. 이상적으로는 에이전트의 파일 쓰기 권한에서 로그 경로를 완전히 배제한다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+import json
+import hashlib
+from datetime import datetime, timezone
+
+class ImmutableAuditLog:
+    """
+    에이전트가 접근할 수 없는 별도 서비스에 기록.
+    각 엔트리는 이전 엔트리의 해시를 포함 (체인 구조).
+    """
+
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.prev_hash = "genesis"
+
+    def record(self, event_type: str, payload: dict) -> None:
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": self.session_id,
+            "event_type": event_type,
+            "payload": payload,
+            "prev_hash": self.prev_hash,  # 체인 무결성
+        }
+        entry_json = json.dumps(entry, sort_keys=True)
+        entry_hash = hashlib.sha256(entry_json.encode()).hexdigest()
+
+        # 에이전트 접근 불가 서비스로 전송
+        write_to_external_log_service(entry_json, entry_hash)
+        self.prev_hash = entry_hash
+
+# 기록할 이벤트 유형
+AUDIT_EVENTS = [
+    "tool_call_requested",    # 도구 호출 요청
+    "authorization_decision", # 인가 결정 (허용/거부)
+    "tool_call_executed",     # 도구 실행 완료
+    "tool_call_failed",       # 도구 실행 실패
+    "human_approval_requested", # 인간 승인 요청
+    "human_approval_response",  # 인간 승인/거부 응답
+    "loop_completed",         # 루프 정상 종료
+    "loop_aborted",           # 루프 비정상 종료
+]
+```
+
+체인 구조(각 엔트리가 이전 해시를 포함)는 로그 변조를 탐지할 수 있게 한다. 중간 엔트리를 수정하면 이후 모든 해시가 깨진다.
+
+## 불확실성 서페이싱
+
+경계된 자율성의 마지막 핵심 요소는 **불확실성 서페이싱(uncertainty surfacing)** 이다. 에이전트가 확신이 없을 때 그 불확실성을 숨기지 않고 드러내도록 설계한다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+
+UNCERTAINTY_PROMPT = """
+다음 상황에서는 반드시 불확실성을 명시적으로 표현하세요:
+- 행동의 결과가 확실하지 않을 때: "확실하지 않습니다. 진행할까요?"
+- 두 가지 해석이 가능할 때: "A로 해석했습니다. 맞습니까?"
+- 위험도 높은 행동 전: "이 작업은 되돌릴 수 없습니다. 계속할까요?"
+- 이전에 시도한 방법이 실패했을 때: "이 접근도 실패할 가능성이 있습니다."
+
+자신감 있게 행동하는 것이 항상 좋은 것은 아닙니다.
+불확실한 상황에서의 멈춤이 잘못된 확신보다 낫습니다.
+"""
+```
+
+불확실성 서페이싱은 에이전트가 스스로 자율성을 낮추는 메커니즘이다. 확실한 작업은 자동으로 처리하고, 불확실한 작업은 인간에게 가져온다. 이것이 "스마트한" 자율성이다.
+
+## 전체 아키텍처 통합
+
+이 챕터와 08섹션 전체에서 다룬 요소들을 통합하면 하나의 보안 아키텍처가 된다.
+
+```text
+경계된 자율성 + 감사 로깅 통합 아키텍처
+
+  사용자 요청
+      │
+      ▼
+  에이전트 루프
+      │ 도구 호출 결정
+      ▼
+  [인가 레이어]  ← 8-3챕터: 결정론적 인가
+      │ 허용
+      ▼
+  [샌드박스 실행] ← 7-5챕터: 격리 + 타임아웃
+      │ 결과
+      ▼
+  [신뢰 등급 태깅] ← 8-1챕터: 출력 오염 방지
+      │ 컨텍스트 추가
+      ▼
+  [모든 단계 감사 로그 기록] ← 이번 챕터
+      │
+      ▼
+  결과 반환
+```
+
+각 레이어는 독립적으로 기능하면서 서로를 보완한다. 하나의 레이어가 실패해도 다른 레이어가 피해를 제한한다. 이것이 심층 방어(defense in depth)의 본질이다.
+
+에이전트 루프를 신뢰할 수 있는 시스템으로 만드는 것은 단순히 모델 능력의 문제가 아니다. 가시성을 보장하고, 행동 경계를 강제하고, 모든 결정을 기록하는 **엔지니어링 설계**의 문제다.
+
+---
+
+import Quiz from '../../../components/learning/Quiz.tsx';
+
+<Quiz section="08-security-adversarial" client:load />

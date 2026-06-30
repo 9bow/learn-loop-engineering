@@ -1,0 +1,177 @@
+---
+title: "Tree of Thoughts and Graph of Thoughts: Search-Based Loops"
+description: Learn how Tree of Thoughts (ToT) and Graph of Thoughts (GoT) structure the reasoning space as a tree or DAG and apply BFS/DFS search to find the optimal path.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Describe the BFS/DFS search structure of ToT and the role of the State Evaluator"
+  - "Understand the advantage GoT gains by extending the tree structure to a DAG"
+  - "Cite verified performance numbers from the Game of 24 benchmark and explain the cost explosion problem"
+prerequisites:
+  - "3-1-react"
+estimated_minutes: 32
+references:
+  - title: "Yao et al. — Tree of Thoughts: Deliberate Problem Solving with Large Language Models (arXiv:2305.10601)"
+    url: "https://arxiv.org/abs/2305.10601"
+    accessed: "2026-06-30"
+  - title: "Besta et al. — Graph of Thoughts: Solving Elaborate Problems with Large Language Models (arXiv:2308.09687)"
+    url: "https://arxiv.org/abs/2308.09687"
+    accessed: "2026-06-30"
+  - title: "Lilian Weng — LLM Powered Autonomous Agents"
+    url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
+    accessed: "2026-06-30"
+---
+
+## Beyond Linear Reasoning
+
+ReAct, Self-Refine, and Self-Consistency all share a **linear** reasoning path. ReAct moves from Thought to Action to Observation in one direction. Self-Refine iterates Generate → Critique → Refine in sequence. Self-Consistency runs multiple independent paths in parallel, but each path itself is linear.
+
+Tree of Thoughts (ToT) and Graph of Thoughts (GoT) break this linearity by representing the reasoning space as an **explicit data structure**. Each intermediate thought becomes a node, and transitions between thoughts become edges — enabling classical AI search algorithms (BFS, DFS, beam search) to be applied directly.
+
+## Tree of Thoughts
+
+ToT (Yao et al., NeurIPS 2023) organizes the reasoning process as a **tree**. The root is the initial problem, each level represents one step of reasoning, and each node represents one possible "thought state" at that step.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│               Tree of Thoughts Structure                     │
+│                                                              │
+│            [Problem: Make 24]                                │
+│            Using: 4, 8, 6, 2                                 │
+│                     │                                        │
+│       ┌─────────────┼─────────────┐                          │
+│       ▼             ▼             ▼                          │
+│   [4+8=12]      [4×2=8]      [8-4=4]                        │
+│   left: 6,2    left: 6,8    left: 6,2                       │
+│   eval: mid    eval: high   eval: low                        │
+│       │             │                                        │
+│  ┌────┴────┐   ┌────┴────┐                                   │
+│  ▼         ▼   ▼         ▼                                   │
+│[12×2=24] [12-2] [8×3=24] [8+6=14]                           │
+│ success!   ...  success!   ...                               │
+└──────────────────────────────────────────────────────────────┘
+```
+
+ToT has two core components:
+
+**Thought Generator**: Produces several possible next thoughts from the current state. Implemented by prompting the same model: "Suggest k possible next steps from this state."
+
+**State Evaluator**: Scores each thought state on how close it is to the goal. The score guides the search algorithm in deciding which node to expand next. The evaluator can itself be an LLM ("Is this state promising — yes/no/maybe?") or a domain-specific heuristic function.
+
+### Game of 24 Benchmark
+
+Game of 24 is a puzzle where you must reach 24 using four given numbers and basic arithmetic. Chain-of-Thought (CoT) achieves only **4%** success on this benchmark. Applying ToT with BFS jumps that figure to **74%**. This dramatic gap demonstrates how powerful ToT is for combinatorial puzzles that require deliberate multi-step search.
+
+| Method | Game of 24 Success Rate |
+|--------|------------------------|
+| Chain-of-Thought | **4%** |
+| Tree of Thoughts (BFS) | **74%** |
+
+### Python Implementation (BFS)
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+from dataclasses import dataclass
+from collections import deque
+
+@dataclass
+class ThoughtNode:
+    state: str          # representation of current state
+    depth: int
+    score: float = 0.0
+    parent: "ThoughtNode | None" = None
+
+def tree_of_thoughts_bfs(
+    model,
+    problem: str,
+    generate_k: int = 3,   # children to generate per node
+    max_depth: int = 4,
+    beam_width: int = 5,   # max nodes retained per BFS level
+) -> str:
+    """BFS-based Tree of Thoughts."""
+    root = ThoughtNode(state=problem, depth=0, score=1.0)
+    frontier = deque([root])
+
+    for depth in range(max_depth):
+        next_frontier = []
+
+        for node in list(frontier):
+            # Thought Generator: produce k next states
+            gen_prompt = (
+                f"Problem: {problem}\nCurrent state: {node.state}\n"
+                f"Generate {generate_k} possible next reasoning steps as a numbered list."
+            )
+            thoughts = parse_thoughts(
+                model.generate([{"role": "user", "content": gen_prompt}]).text,
+                k=generate_k,
+            )
+
+            for thought in thoughts:
+                child = ThoughtNode(
+                    state=thought,
+                    depth=depth + 1,
+                    parent=node,
+                )
+
+                # State Evaluator: score the new state
+                eval_prompt = (
+                    f"Problem: {problem}\nState: {thought}\n"
+                    "How promising is this state for solving the problem? "
+                    "Output only a score between 0 and 1."
+                )
+                score_text = model.generate(
+                    [{"role": "user", "content": eval_prompt}]
+                ).text.strip()
+                child.score = float(score_text)
+                next_frontier.append(child)
+
+        # Beam search: keep only the top beam_width nodes
+        next_frontier.sort(key=lambda n: n.score, reverse=True)
+        frontier = deque(next_frontier[:beam_width])
+
+    # Return the path of the highest-scoring node as the final answer
+    best = max(frontier, key=lambda n: n.score)
+    return best.state
+```
+
+## Graph of Thoughts: Extending the Tree to a DAG
+
+The tree structure in ToT has one constraint: each node has exactly one parent. This means partial conclusions reached via different reasoning paths **cannot be merged (aggregated)**. GoT (Besta et al., AAAI 2024) removes this constraint by generalizing the reasoning graph to a **directed acyclic graph (DAG)**.
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│          ToT vs. GoT: Structure Comparison                     │
+│                                                                │
+│  ToT (tree)              GoT (DAG)                             │
+│                                                                │
+│       A                      A                                 │
+│      / \                    / \                                │
+│     B   C                  B   C                               │
+│    / \   \                / \ / \                              │
+│   D   E   F              D   E   F                             │
+│                               │                               │
+│  Each node: 1 parent       ┌──┴──┐                            │
+│                             G     H                           │
+│                           (merge of B+C)                      │
+└────────────────────────────────────────────────────────────────┘
+```
+
+In GoT, an **aggregate** operation can merge two or more partial solutions. This is a natural fit for divide-and-conquer tasks: independently sort partition A, independently sort partition B, then merge the two sorted lists — something the tree topology cannot express without redundant nodes.
+
+The GoT paper reported **+62% quality and −31% cost** compared to ToT on a sorting task. The efficiency gain comes from the ability to combine results rather than re-exploring shared sub-problems from scratch.
+
+## The Shared Weakness: Cost Explosion
+
+The biggest practical barrier for both ToT and GoT is **cost**. If each node generates k thoughts (k LLM calls) and each thought is evaluated (another k calls), the number of nodes grows on the order of k^d at depth d. Even with beam search, the search budget is large.
+
+| Configuration | Approximate LLM Calls |
+|---------------|----------------------|
+| Single CoT | 1 |
+| Self-Consistency (N=10) | 10 |
+| ToT (k=3, depth=3, beam=5) | ~45–90 |
+| ToT (k=5, depth=5, beam=10) | hundreds |
+
+ToT and GoT are therefore practical only for **high-value, non-latency-critical** tasks. Ideal domains include combinatorial puzzles, formal optimization, and scientific hypothesis generation — anywhere the search space is well-defined and the cost of a suboptimal answer exceeds the search budget.
+
+For everyday Q&A or standard coding tasks, the cost-to-benefit ratio is unfavorable. The next chapter covers ReWOO and LLMCompiler, which point in the opposite direction: **maximizing efficiency** rather than broadening the search.

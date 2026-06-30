@@ -1,0 +1,109 @@
+---
+title: "에이전틱 루프의 역사: ReAct에서 Claude Code까지"
+description: ReAct 논문(2022)에서 AutoGPT의 실패, Anthropic BEA, Ralph 기법, Loop Engineering 용어 부상까지 에이전틱 루프의 짧고 밀도 높은 역사를 연표로 추적합니다.
+sidebar:
+  order: 5
+learning_objectives:
+  - "에이전틱 루프 발전의 주요 이정표를 시간 순서로 설명할 수 있다"
+  - "초기 자율 에이전트(AutoGPT 등)의 실패 원인을 구조적으로 분석할 수 있다"
+  - "학술 연구에서 실용 엔지니어링 원칙으로의 전환 흐름을 이해한다"
+prerequisites:
+  - "1-4-engineering-lineage"
+estimated_minutes: 32
+references:
+  - title: "Yao et al. — ReAct: Synergizing Reasoning and Acting in Language Models (arXiv:2210.03629)"
+    url: "https://arxiv.org/abs/2210.03629"
+    accessed: "2026-06-30"
+  - title: "Lilian Weng — LLM Powered Autonomous Agents"
+    url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Geoffrey Huntley — Ralph Wiggum as a software engineer"
+    url: "https://ghuntley.com/ralph/"
+    accessed: "2026-06-30"
+---
+
+## 이정표 요약
+
+| 시점 | 이정표 | 핵심 기여 |
+|---|---|---|
+| 2022.10 | ReAct 논문 | Thought-Act-Observe 패턴 공식화 |
+| 2023.03 | AutoGPT / BabyAGI | 무한 루프·환각 누적 실패 모드 노출 |
+| 2023.06 | Lilian Weng 블로그 | Planning·Memory·Tool Use 3축 프레임 |
+| 2024.12 | Anthropic BEA 가이드 | 실용 워크플로·에이전트 설계 원칙 |
+| 2025.07 | Ralph 기법 | 신선 컨텍스트 + 단순 루프 원칙 |
+| 2025~ | Loop Engineering | 루프 설계의 독립 공학 분야 부상 |
+
+## 역사가 짧은 이유
+
+에이전틱 루프의 역사는 놀랍도록 짧다. 핵심 아이디어를 공식화한 ReAct 논문이 나온 것이 2022년 10월이었고, 실용적 엔지니어링 원칙이 정리되기까지 채 3년도 걸리지 않았다. 이 압축된 시간 안에 학술 연구, 바이럴 오픈소스 프로젝트의 실패, 프로덕션 시스템의 성숙, 그리고 새로운 엔지니어링 패러다임의 부상이 모두 담겨 있다.
+
+```text
+에이전틱 루프 발전 연표
+──────────────────────────────────────────────────────────────
+2022.10  ReAct 논문 — Thought·Act·Observe 패턴 공식화
+         ALFWorld +34%, WebShop +10% (RL 기준선 대비)
+
+2023.03  AutoGPT / BabyAGI 바이럴
+         무한 루프·환각 누적의 실패 모드 전면 노출
+
+2023.06  Lilian Weng "LLM Powered Autonomous Agents" 블로그
+         Planning / Memory / Tool Use 3축 프레임 정리
+
+2024.12  Anthropic "Building Effective AI Agents" 가이드
+         워크플로 vs 에이전트, 단순하게 시작하라 원칙
+
+2025.07  Geoffrey Huntley "Ralph" 기법 공개
+         while :; do cat PROMPT.md | claude-code; done
+
+2025 ~   "Loop Engineering" 용어 부상 (Osmani, Cherny)
+         루프 설계가 독립적 엔지니어링 분야로 인식
+──────────────────────────────────────────────────────────────
+```
+
+## 2022.10 — ReAct: 추론과 행동의 결합
+
+Shunyu Yao 등이 발표한 ReAct(arXiv:2210.03629)는 **추론(Reasoning)** 과 **행동(Acting)** 을 교차로 수행하는 패턴을 처음으로 체계화했다. 핵심 아이디어는 간단하다. 모델이 "Thought(생각) → Act(행동) → Observe(관찰)"을 반복하며 문제를 풀게 하면, 추론만 하거나 행동만 할 때보다 훨씬 좋은 결과가 나온다는 것이다.
+
+실험 결과는 설득력 있었다. ALFWorld 태스크에서 강화학습(RL) 기준선 대비 절대값 +34%, WebShop에서 +10%를 기록했다. 모델이 중간 과정을 언어로 표현하면서 추론의 궤적이 사람이 읽을 수 있는 형태로 남는 것도 큰 장점이었다. ReAct는 이후 거의 모든 에이전틱 프레임워크의 기본 패턴이 됐다.
+
+## 2023.03 — AutoGPT와 BabyAGI: 흥분과 실패
+
+2023년 3월, AutoGPT와 BabyAGI가 오픈소스로 공개되며 수백만 명의 관심을 끌었다. "GPT-4가 스스로 목표를 분해하고, 인터넷을 검색하고, 코드를 실행하고, 반복한다"는 개념은 혁명적으로 보였다.
+
+그러나 이 흥분은 오래가지 않았다. 실제로 돌려 보면 루프가 중단되지 않고 영원히 돌거나, 초기 환각이 후속 단계로 전파되어 전혀 엉뚱한 방향으로 흘러가거나, 비용이 폭발하는 일이 빈번했다. **무한 루프(infinite loop)** 와 **환각 누적(hallucination cascade)** 이라는 실패 모드가 전면으로 드러났다. 이 경험은 이후 루프 제어와 종료 조건 설계가 왜 중요한지를 일깨우는 반면교사가 됐다.
+
+## 2023.06 — Lilian Weng의 프레임 정리
+
+OpenAI의 Lilian Weng은 2023년 6월 "LLM Powered Autonomous Agents"라는 블로그 포스트에서 당시까지의 연구를 체계적으로 정리했다. 에이전틱 시스템을 **계획(Planning)**, **메모리(Memory)**, **도구 사용(Tool Use)** 세 축으로 분류한 이 프레임은 이후 수많은 논의의 기준점이 됐다.
+
+특히 계획 컴포넌트 아래 ReAct, Reflexion, Chain-of-Thought, Tree of Thoughts를 정리하고, 메모리 컴포넌트에서 단기 메모리(컨텍스트 창)와 장기 메모리(외부 저장소)를 구분한 것은 에이전틱 시스템 설계의 어휘를 표준화하는 데 기여했다.
+
+## 2024.12 — Anthropic의 실용 원칙
+
+2024년 12월 Anthropic은 "Building Effective AI Agents" 가이드를 발표했다. 학술 논문이나 개념 정리가 아닌 **프로덕션 구축 원칙**을 담은 문서였다. 워크플로와 에이전트의 구분, 단순하게 시작하라는 권고, 다섯 가지 기본 워크플로 패턴(프롬프트 체이닝, 라우팅, 병렬화, 오케스트레이터-워커, 평가자-최적화자)이 핵심 내용이었다.
+
+이 가이드는 "에이전트를 만들 수 있다"에서 "에이전트를 제대로 만드는 방법"으로 논의를 이동시켰다. 특히 에이전트에 과도한 자율성을 주지 말고 적절한 제약을 두라는 원칙은 AutoGPT 시대의 실패 경험을 직접 반영하고 있었다.
+
+## 2025.07 — Ralph: 가장 단순한 루프
+
+Geoffrey Huntley가 공개한 Ralph 기법은 에이전틱 루프를 가장 단순한 형태로 환원했다.
+
+```bash
+# Ralph의 핵심 루프 — 이 단순함이 요점이다
+while :; do cat PROMPT.md | claude-code; done
+```
+
+겉보기에는 너무 단순하지만, 이 안에 중요한 원칙들이 담겨 있다. 매 이터레이션마다 컨텍스트를 초기화(신선 컨텍스트)하고, 안정적인 스펙 문서(PROMPT.md)를 매번 재주입하고, 루프당 한 가지 목표만 추구한다. 환각이 누적되는 문제를 컨텍스트를 버리는 방식으로 해결했다. "루프를 돌리되, 루프를 단순하게 유지하라"는 반직관적 지혜였다.
+
+## 2025 이후 — "Loop Engineering"의 부상
+
+2025년부터 Addy Osmani와 Claude Code 팀의 Boris Cherny를 중심으로 루프 설계 자체를 독립적인 엔지니어링 분야로 바라보는 관점이 확산됐다. "프롬프트를 잘 쓰는 것"이나 "컨텍스트를 잘 구성하는 것"을 넘어, **루프 자체의 구조, 종료 조건, 상태 관리, 비용 제어, 신뢰성**을 공학적으로 다루는 것이 핵심 역량으로 자리 잡기 시작했다.
+
+이 짧은 역사가 말해 주는 것은 하나다. 에이전틱 루프는 이론에서 시작해 실패를 겪고, 그 실패에서 원칙을 배우고, 그 원칙을 체계화하는 과정에 있다. 다음 섹션에서는 그 원칙들을 루프 해부학이라는 이름으로 하나씩 들여다본다.
+
+import Quiz from '../../../components/learning/Quiz.tsx';
+
+<Quiz section="01-foundations" client:load />

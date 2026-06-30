@@ -1,0 +1,109 @@
+---
+title: "Prompt Caching and the KV Cache"
+description: Understand the KV cache prefix stability principle and Anthropic's prompt caching cost structure, then learn the optimal patterns for applying them inside an agent loop.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Explain the conditions under which the KV cache produces a hit"
+  - "Calculate the read/write costs and break-even point for Anthropic prompt caching"
+  - "Apply prompt structure patterns that maximize cache hit rates inside a loop"
+prerequisites:
+  - "9-4-loop-economics"
+estimated_minutes: 28
+references:
+  - title: "Anthropic — Prompt caching"
+    url: "https://www.anthropic.com/news/prompt-caching"
+    accessed: "2026-06-30"
+  - title: "OpenAI — Unrolling the Codex agent loop"
+    url: "https://openai.com/index/unrolling-the-codex-agent-loop/"
+    accessed: "2026-06-30"
+---
+
+## How the KV Cache Works
+
+A transformer model computes Key and Value matrices for each token in the input sequence — these are the KV matrices at the heart of the attention mechanism. Recomputing them from scratch on every request is wasteful when the same prefix appears repeatedly. The **KV cache** stores these matrices so that, on the next request, any prefix that is already cached can be reused without recomputation.
+
+There is one strict condition: **the prefix must be byte-for-byte identical**. Every token from the very beginning of the input to the cached boundary must exactly match the previous request. If even one token differs, the cache is invalidated from that position forward.
+
+For agent loops this implies a foundational design principle: **content that never changes — system prompt, tool definitions — belongs at the front; content that changes every iteration — conversation history, tool results — belongs at the back**.
+
+## Anthropic Prompt Caching: Cost Structure
+
+Anthropic exposes prompt caching as an explicit API feature. The cost structure is:
+
+| Cache State | Price |
+|---|---|
+| Cache write (first request) | approximately 25% premium over standard input token price |
+| Cache hit (read) | approximately 10% of standard input token price (90% discount) |
+| Cache miss | 100% of standard input token price |
+
+On the first request, you pay the cache-write premium. Starting from the second request onward, the cache-hit price (10%) applies. Therefore **two or more hits are enough to break even and start saving**. In a loop where the system prompt is reused every iteration, ten iterations means ten hits — and the system-prompt cost becomes nearly negligible.
+
+Concretely: for a 2,000-token system prompt at base price P per token, cache-write cost = 2,000 × 1.25P. From the second request onward, each hit costs 2,000 × 0.1P. By the third request, cumulative savings have already begun, and the longer the loop runs, the larger the total saving.
+
+## Optimizing Cache Hit Rate Inside a Loop
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│        Prompt Structure for Maximum Cache Hit Rate              │
+├──────────────────────┬──────────────────────────────────────────┤
+│  Stable (place first) │  Dynamic (place last)                  │
+├──────────────────────┼──────────────────────────────────────────┤
+│  System prompt        │  Current conversation messages          │
+│  Tool definition list │  Tool execution results                 │
+│  Codebase files       │  Agent scratchpad / internal reasoning  │
+│  Reference specs      │  Per-iteration observations             │
+└──────────────────────┴──────────────────────────────────────────┘
+```
+
+Anthropic's `cache_control` marker lets you specify exactly where the cached prefix ends.
+
+This is a conceptual pseudocode example; actual API signatures may differ.
+
+```python
+def build_cached_messages(
+    system_prompt: str,
+    tools: list,
+    conversation_history: list,
+) -> tuple:
+    """Separate the cacheable static portion from the dynamic portion."""
+
+    # System prompt: apply cache marker
+    system = [
+        {
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},  # prefix cache boundary
+        }
+    ]
+
+    # Tool definitions: static, so place immediately after system prompt
+    # and never change them mid-loop (any change invalidates the cache here)
+
+    # Conversation history: dynamic, no cache marker
+    messages = conversation_history  # grows each iteration
+
+    return system, messages
+```
+
+## Cache Invalidation Pitfalls
+
+Several common mistakes destroy cache hit rates.
+
+**Changing the tool list mid-loop**: Dynamically adding or removing tools during a loop invalidates all cache entries from the tool definitions onward. Fix the tool list before the loop starts and never modify it while the loop is running.
+
+**MCP server reconnection**: If an MCP (Model Context Protocol) server exposes new tools while a loop is in progress, the tool definitions change and the cache breaks. Initialize and lock the MCP session before the loop starts.
+
+**Injecting timestamps into the system prompt**: Placing the current time in the system prompt means the prefix changes on every request and the cache always misses. Dynamic information belongs in conversation messages, not the system prompt.
+
+**Switching models mid-loop**: A different model has an empty KV cache of its own. Use the same model throughout the entire loop.
+
+## The Codex Loop Caching Pattern
+
+OpenAI's Codex loop implementation applies the same principle. The main source files for a codebase are loaded into the front of the system prompt and left unchanged throughout the loop. Conversation history and test output accumulate at the back. This pattern effectively reduces the cost of loading the codebase to a one-time expense, because every subsequent iteration reuses the cached KV entries for those files.
+
+## Caching and Compaction: How They Interact
+
+Caching and context compaction (chapter 5-3) can work against each other. Compaction replaces the conversation history with a summary, which may alter tokens that follow the cached prefix boundary. The practical resolution is straightforward: **protect the system prompt and tool definitions with caching, and target only the conversation history for compaction**. This approach preserves the benefits of both techniques simultaneously.
+
+The next chapter examines another dimension of cost reduction: **model routing** — using cheaper models for the simpler steps inside a loop rather than applying a frontier model uniformly to every iteration.

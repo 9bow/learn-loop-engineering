@@ -1,0 +1,154 @@
+---
+title: "Prompt Chaining: 순차 파이프라인"
+description: 여러 LLM 호출을 순서대로 연결해 각 단계의 출력이 다음 단계의 입력이 되는 Prompt Chaining 패턴과 그 설계 원칙을 살펴봅니다.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Prompt Chaining이 단일 프롬프트 대비 갖는 구조적 이점을 설명할 수 있다"
+  - "Gate(검증 체크포인트) 설계의 필요성과 위치를 이해한다"
+  - "에러 전파 문제와 이를 완화하는 설계 전략을 적용할 수 있다"
+prerequisites:
+  - "1-3-workflow-vs-agent"
+estimated_minutes: 26
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+---
+
+## 복잡한 작업을 단계로 분해하기
+
+"긴 영어 기사를 한국어로 번역하고, 핵심 요점 5개를 추출한 뒤, 소셜 미디어용 짧은 게시글로 변환하라"는 요청을 단일 프롬프트로 처리하면 어떻게 될까? 모델은 세 가지를 동시에 수행하려다 각각의 품질이 떨어지기 쉽다. 또한 한 단계가 실패해도 어느 단계에서 문제가 생겼는지 알기 어렵다.
+
+Prompt Chaining은 이 문제를 단계 분해로 해결한다. **각 LLM 호출은 단 하나의 잘 정의된 변환만 수행**하고, 그 출력이 다음 호출의 입력이 된다. Anthropic의 "Building Effective AI Agents"에서 Workflow 패턴의 출발점으로 제시하는 이 패턴은 가장 단순하면서도 실용적인 다단계 LLM 아키텍처다.
+
+## 파이프라인 구조
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                   Prompt Chaining 파이프라인                      │
+│                                                                  │
+│  원본 입력                                                        │
+│     │                                                            │
+│     ▼                                                            │
+│  ┌──────────┐                                                    │
+│  │ LLM 호출 1│  "영어 기사를 한국어로 번역하라"                    │
+│  │ (번역)   │                                                    │
+│  └────┬─────┘                                                    │
+│       │   출력: 한국어 번역문                                      │
+│       ▼                                                          │
+│  ┌──────────┐ ← Gate: 번역 언어가 한국어인가? (실패 시 중단)       │
+│  │ LLM 호출 2│  "핵심 요점 5개를 불릿 포인트로 추출하라"            │
+│  │ (요약)   │                                                    │
+│  └────┬─────┘                                                    │
+│       │   출력: 5개 요점                                          │
+│       ▼                                                          │
+│  ┌──────────┐ ← Gate: 요점이 정확히 5개인가? (실패 시 재시도)      │
+│  │ LLM 호출 3│  "소셜 미디어용 280자 게시글로 변환하라"             │
+│  │ (변환)   │                                                    │
+│  └────┬─────┘                                                    │
+│       │   출력: 게시글                                            │
+│       ▼                                                          │
+│   최종 결과                                                       │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+각 단계 사이의 **Gate**는 이 패턴의 핵심 품질 장치다. Gate는 이전 단계의 출력이 다음 단계의 입력으로 적합한지 검증하는 프로그래밍적 또는 LLM 기반 체크포인트다.
+
+## Python 구현 예시
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+from dataclasses import dataclass
+from typing import Callable
+
+@dataclass
+class Step:
+    name: str
+    prompt_template: str           # {input} 플레이스홀더 포함
+    gate: Callable[[str], bool] | None = None
+    gate_error_msg: str = ""
+
+def prompt_chain(model, steps: list[Step], initial_input: str) -> str:
+    """
+    순차 파이프라인 실행. 각 단계 후 Gate 검증.
+    """
+    current = initial_input
+
+    for step in steps:
+        prompt = step.prompt_template.format(input=current)
+        result = model.generate([{"role": "user", "content": prompt}]).text
+
+        # Gate 검증
+        if step.gate is not None and not step.gate(result):
+            raise ValueError(
+                f"[{step.name}] Gate 실패: {step.gate_error_msg}\n"
+                f"출력 일부: {result[:200]}"
+            )
+
+        current = result  # 다음 단계의 입력으로 전달
+
+    return current
+
+
+# 사용 예시
+def is_korean(text: str) -> bool:
+    """한글 문자가 포함됐는지 확인."""
+    return any("가" <= c <= "힣" for c in text)
+
+def has_five_bullets(text: str) -> bool:
+    """불릿 포인트 5개 이상 포함 여부."""
+    return text.count("•") >= 5 or text.count("-") >= 5
+
+pipeline = [
+    Step(
+        name="번역",
+        prompt_template="다음 영어 텍스트를 한국어로 번역하라:\n\n{input}",
+        gate=is_korean,
+        gate_error_msg="번역 결과에 한국어가 없습니다.",
+    ),
+    Step(
+        name="요약",
+        prompt_template="다음 텍스트에서 핵심 요점 5개를 '• ' 불릿으로 추출하라:\n\n{input}",
+        gate=has_five_bullets,
+        gate_error_msg="요점이 5개 미만입니다.",
+    ),
+    Step(
+        name="게시글 변환",
+        prompt_template="다음 요점들을 280자 이내 소셜 미디어 게시글로 변환하라:\n\n{input}",
+        gate=lambda t: len(t) <= 280,
+        gate_error_msg="게시글이 280자를 초과합니다.",
+    ),
+]
+
+result = prompt_chain(model, pipeline, initial_input=english_article)
+```
+
+## 에러 전파: 첫 번째 단계가 모든 것을 결정한다
+
+Prompt Chaining의 가장 중요한 약점은 **에러 전파(error propagation)**다. 1단계 번역이 특정 전문 용어를 잘못 처리하면, 2단계 요약은 잘못된 번역을 입력으로 받고, 3단계 게시글은 그 잘못된 요약을 기반으로 작성된다. **초기 오류가 하류(downstream) 단계를 모두 오염**시키고, 최종 출력에서 원인을 역추적하기 어렵다.
+
+이를 완화하는 설계 전략이 세 가지 있다.
+
+**조기 Gate 배치**: 에러를 빨리 발견할수록 좋다. 파이프라인의 앞 단계에 더 엄격한 Gate를 두고, 실패 시 전체 파이프라인을 즉시 중단한다. 뒤에서 발견하는 것보다 비용이 훨씬 적다.
+
+**단계별 로깅**: 각 단계의 입력과 출력을 로그로 남겨야 한다. 최종 결과가 나빠졌을 때 어느 단계에서 품질이 저하됐는지 즉시 확인할 수 있어야 한다.
+
+**중간 결과 캐싱**: 앞 단계의 결과를 캐시에 저장하면, 뒷 단계만 재실행하는 부분 재시도가 가능하다. 5단계 파이프라인에서 4단계가 실패할 때 1~3단계를 다시 돌릴 필요가 없다.
+
+## Prompt Chaining이 적합한 경우
+
+| 특성 | 적합 여부 |
+|------|---------|
+| 각 단계가 명확히 분리되고 순서가 고정됨 | 매우 적합 |
+| 중간 결과를 인간이 검토해야 함 | 매우 적합 |
+| 단계 수가 적음 (3~7개) | 적합 |
+| 각 단계의 품질을 자동으로 검증 가능 | 필수 조건 |
+| 단계 순서가 태스크에 따라 달라짐 | 비적합 → Routing 고려 |
+| 단계들이 서로 의존적이지 않음 | 비적합 → Parallelization 고려 |
+
+다음 챕터에서는 Prompt Chaining의 "고정된 단선 경로"를 **분기**로 확장하는 Routing 패턴을 살펴본다. 분류기가 입력을 분석해 여러 전문화된 파이프라인 중 하나로 라우팅하는 방식이다.

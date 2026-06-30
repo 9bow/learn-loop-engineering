@@ -1,0 +1,109 @@
+---
+title: "A Brief History of Agentic Loops: From ReAct to Claude Code"
+description: A timeline from the ReAct paper (2022) through AutoGPT's failures, Anthropic's BEA guide, the Ralph technique, and the emergence of Loop Engineering as a named discipline.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Recite the major milestones of agentic loop development in chronological order"
+  - "Analyze the structural reasons early autonomous agents (AutoGPT, BabyAGI) failed"
+  - "Understand the shift from academic research to practical engineering principles"
+prerequisites:
+  - "1-4-engineering-lineage"
+estimated_minutes: 32
+references:
+  - title: "Yao et al. — ReAct: Synergizing Reasoning and Acting in Language Models (arXiv:2210.03629)"
+    url: "https://arxiv.org/abs/2210.03629"
+    accessed: "2026-06-30"
+  - title: "Lilian Weng — LLM Powered Autonomous Agents"
+    url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Geoffrey Huntley — Ralph Wiggum as a software engineer"
+    url: "https://ghuntley.com/ralph/"
+    accessed: "2026-06-30"
+---
+
+## Milestone Summary
+
+| Date | Milestone | Key Contribution |
+|---|---|---|
+| 2022.10 | ReAct paper | Formalizes the Thought-Act-Observe pattern |
+| 2023.03 | AutoGPT / BabyAGI | Exposes infinite-loop and hallucination-cascade failure modes |
+| 2023.06 | Lilian Weng's post | Planning · Memory · Tool Use three-axis framework |
+| 2024.12 | Anthropic BEA guide | Production-grade workflow and agent design principles |
+| 2025.07 | Ralph technique | Fresh-context + single-purpose loop principle |
+| 2025~ | "Loop Engineering" | Loop design recognized as an independent engineering discipline |
+
+## Why the History Is Short
+
+The history of agentic loops is surprisingly compressed. The ReAct paper that formalized the core idea appeared in October 2022. Practical engineering principles were consolidated in fewer than three years. Packed into that span are: academic research, the spectacular failure of viral open-source projects, the maturation of production systems, and the emergence of a new engineering paradigm.
+
+```text
+Agentic Loop Timeline
+──────────────────────────────────────────────────────────────
+2022.10  ReAct paper — Thought · Act · Observe pattern
+         ALFWorld +34%, WebShop +10% vs. RL baselines
+
+2023.03  AutoGPT / BabyAGI go viral
+         Infinite loops and hallucination cascades exposed
+
+2023.06  Lilian Weng "LLM Powered Autonomous Agents"
+         Planning / Memory / Tool Use three-axis framework
+
+2024.12  Anthropic "Building Effective AI Agents"
+         Workflow vs. agent distinction, "start simple" principle
+
+2025.07  Geoffrey Huntley's "Ralph" technique
+         while :; do cat PROMPT.md | claude-code; done
+
+2025 ~   "Loop Engineering" term emerges (Osmani, Cherny)
+         Loop design recognized as an independent discipline
+──────────────────────────────────────────────────────────────
+```
+
+## 2022.10 — ReAct: Combining Reasoning and Acting
+
+Shunyu Yao et al.'s ReAct (arXiv:2210.03629) was the first paper to systematize the pattern of interleaving **Reasoning** and **Acting**. The core idea: let the model cycle through Thought → Act → Observe. Compared to reasoning alone or acting alone, this interleaving produced significantly better results.
+
+The empirical evidence was compelling. On ALFWorld, ReAct beat the reinforcement learning baseline by +34 percentage points absolute. On WebShop it gained +10%. Another major advantage was transparency: because the model articulates intermediate thoughts in natural language, the reasoning trace is human-readable — making it far easier to diagnose failures. ReAct became the template for almost every agentic framework that followed.
+
+## 2023.03 — AutoGPT and BabyAGI: Excitement and Failure
+
+In March 2023, AutoGPT and BabyAGI were released as open-source projects and attracted millions of users almost overnight. The concept was revolutionary on the surface: GPT-4 autonomously decomposing goals, searching the internet, executing code, and iterating.
+
+The excitement did not last. In practice, loops frequently ran indefinitely without stopping. Early hallucinations propagated into subsequent steps, compounding into completely wrong trajectories. Costs exploded. Two failure modes became impossible to ignore: the **infinite loop** and the **hallucination cascade**. These failures became the negative lesson that taught the community why loop control and termination conditions matter as much as the loop itself.
+
+## 2023.06 — Lilian Weng's Framework
+
+OpenAI's Lilian Weng published "LLM Powered Autonomous Agents" in June 2023, systematically organizing everything known at that point. She classified agentic systems along three axes — **Planning**, **Memory**, and **Tool Use** — and this taxonomy became the reference vocabulary for subsequent discussion.
+
+Particularly influential was the categorization of planning approaches (ReAct, Reflexion, Chain-of-Thought, Tree of Thoughts) under the planning axis, and the distinction between short-term memory (context window) and long-term memory (external stores) under the memory axis. This post standardized the language of agentic system design.
+
+## 2024.12 — Anthropic's Production Principles
+
+In December 2024, Anthropic published "Building Effective AI Agents" — not a research paper or conceptual survey, but a guide to **building production systems**. It articulated the workflow-versus-agent distinction, the "start simple" recommendation, and five foundational workflow patterns (prompt chaining, routing, parallelization, orchestrator-workers, evaluator-optimizer).
+
+The guide moved the conversation from "what agents can do" to "how to build agents properly." Its insistence on not over-autonomizing — give agents appropriate constraints, not unlimited freedom — directly reflected the lessons of the AutoGPT failures.
+
+## 2025.07 — Ralph: The Simplest Possible Loop
+
+Geoffrey Huntley's Ralph technique reduced the agentic loop to its most minimal form:
+
+```bash
+# The Ralph core loop — the simplicity is the point
+while :; do cat PROMPT.md | claude-code; done
+```
+
+This looks almost trivially simple, but it encodes several important principles. Context is reset on every iteration (fresh context). A stable spec document (PROMPT.md) is re-injected each time. Each loop run pursues a single goal. The hallucination-accumulation problem is solved by discarding context rather than preserving it. "Run the loop — but keep the loop simple" was the counterintuitive wisdom.
+
+## 2025 Onward — "Loop Engineering" Emerges
+
+From 2025, Addy Osmani and Boris Cherny (lead of Claude Code) articulated a perspective that has been spreading: loop design itself is an independent engineering discipline. Moving beyond "writing a good prompt" or "structuring a good context window," the focus shifted to the **structure of the loop itself** — its termination conditions, state management, cost controls, and reliability — as the primary engineering competency.
+
+What this compressed history teaches us is simple: agentic loops began in theory, were tempered by failure, extracted principles from that failure, and are now in the process of systematizing those principles. The next section explores those principles one anatomical layer at a time.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="01-foundations" lang="en" client:load />

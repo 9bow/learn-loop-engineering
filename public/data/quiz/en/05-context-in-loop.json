@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "What is the computational complexity of LLM self-attention?",
+    "options": [
+      "O(n)",
+      "O(n log n)",
+      "O(n²)",
+      "O(2ⁿ)"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 5-1 states that the computational complexity of self-attention is O(n²), meaning that computation cost grows quadratically as context length increases."
+  },
+  {
+    "id": "q2",
+    "question": "What is an 'attention budget'?",
+    "options": [
+      "The maximum cost allowed for LLM API calls",
+      "The total amount of information a model can effectively focus on in a single inference pass",
+      "The maximum number of tokens in a context window",
+      "The maximum number of tool calls per iteration"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 5-1 explains that attention budget is a concept distinct from context window capacity — it refers to the effective range of information the model can actually focus on."
+  },
+  {
+    "id": "q3",
+    "question": "What is 'context rot'?",
+    "options": [
+      "A phenomenon where the context window fills up and causes an error",
+      "A phenomenon where the model's effective reasoning capability gradually degrades as loop iterations accumulate stale and redundant information",
+      "A phenomenon where a context file is corrupted on disk",
+      "A phenomenon where incorrect tool results accumulate"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 5-1 explains that context rot is a phenomenon where the model's reasoning capability slowly degrades as loop iterations accumulate outdated and duplicated information."
+  },
+  {
+    "id": "q4",
+    "question": "What does the U-shaped attention curve discovered in Liu et al.'s 'Lost in the Middle' study signify?",
+    "options": [
+      "Information at the beginning and end of the context is well utilized, while the middle portion is relatively neglected",
+      "Information in the middle portion of the context is utilized best",
+      "All positions in context are utilized equally",
+      "Overall performance degrades uniformly as context length increases"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 5-2 explains that Liu et al.'s study found a U-shaped pattern in which models concentrate attention on the beginning (system prompt) and end (recent content) of the context and relatively neglect the middle."
+  },
+  {
+    "id": "q5",
+    "question": "What are the two positions in the context window where attention is most strongly concentrated?",
+    "options": [
+      "Middle and end of context",
+      "Beginning and end of context (near recent tokens)",
+      "Beginning and middle of context",
+      "Wherever tool results are located"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 5-2 states that according to the 'Lost in the Middle' study, models focus attention at the beginning (primacy effect) and end (recency effect) of the context while neglecting the middle."
+  },
+  {
+    "id": "q6",
+    "question": "What is the typical token usage threshold that triggers Compaction?",
+    "options": [
+      "When 50% of the context window is reached",
+      "When 70–80% of the context window is reached",
+      "When 95% of the context window is reached",
+      "At regular intervals every 10 iterations"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 5-3 states that the typical trigger point for Compaction is at 70–80% of the context window, and adds that Claude Code uses a higher 92% threshold."
+  },
+  {
+    "id": "q7",
+    "question": "In the loop memory hierarchy, what corresponds to 'Persistent Memory'?",
+    "options": [
+      "The message history of the current iteration within the context window",
+      "Embeddings in a vector database",
+      "Files like NOTES.md written directly to the filesystem during loop execution",
+      "The system prompt"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 5-4 explains that Persistent Memory is implemented as files such as NOTES.md that the agent writes directly to the filesystem during loop execution."
+  },
+  {
+    "id": "q8",
+    "question": "What is the core idea of JIT (Just-In-Time) loading?",
+    "options": [
+      "Pre-load all information into context before the loop starts",
+      "Keep only identifiers like file paths in context, and fetch the actual content with a tool at the moment it is needed",
+      "Compress information to improve context efficiency",
+      "Index information in an external database"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 5-5 states that JIT loading follows the principle of 'putting file paths in context instead of file contents, and fetching actual contents with a read_file tool when needed.'"
+  },
+  {
+    "id": "q9",
+    "question": "What is the best position in the context to place important instructions or constraints?",
+    "options": [
+      "In the middle portion of the context",
+      "Near the front of the context (system prompt area)",
+      "Just before the end of the context",
+      "Between tool results"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 5-2 explains that given the U-shaped attention curve, placing important instructions at the beginning of the context (system prompt) is most effective."
+  },
+  {
+    "id": "q10",
+    "question": "How does the Ralph technique address the context rot problem?",
+    "options": [
+      "It uses a model with a larger context window",
+      "It discards the context at every iteration and starts fresh",
+      "It automatically compresses tool results",
+      "It actively uses external vector memory"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 5-5 explains that the Ralph technique uses the structure `while :; do cat PROMPT.md | claude-code; done`, so the context is completely reset at every iteration and contaminated context does not accumulate."
+  },
+  {
+    "id": "q11",
+    "question": "Which of the following is NOT one of the three Compaction strategies?",
+    "options": [
+      "Conversation summarization",
+      "Stale tool result removal",
+      "Full context re-initialization",
+      "Message encryption"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 5-3 identifies the three Compaction strategies as conversation summarization, stale tool result removal, and context re-initialization. Message encryption is not a Compaction strategy."
+  },
+  {
+    "id": "q12",
+    "question": "In context engineering, what is good to keep as 'stable context'?",
+    "options": [
+      "The full contents of files",
+      "All tool results from previous iterations",
+      "Identifiers like file paths",
+      "Complete model responses"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 5-5 states that Anthropic's context engineering guide recommends keeping identifiers like file paths in context and fetching actual file contents via JIT loading."
+  },
+  {
+    "id": "q13",
+    "question": "Why does a sub-agent have its own separate context window?",
+    "options": [
+      "To reduce costs",
+      "To isolate contaminated context so that it does not propagate between sub-agents",
+      "To enable parallel execution",
+      "For faster response times"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 5-4 explains that because a sub-agent has its own context window, context rot or contamination in one agent does not propagate to other agents, providing an isolation effect."
+  }
+]

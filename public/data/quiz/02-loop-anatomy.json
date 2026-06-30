@@ -1,0 +1,170 @@
+[
+  {
+    "id": "q1",
+    "question": "에이전틱 루프 한 이터레이션의 네 단계를 올바른 순서로 나열한 것은?",
+    "options": [
+      "Reason → Observe → Act → Evaluate",
+      "Observe → Reason → Act → Evaluate",
+      "Act → Observe → Reason → Evaluate",
+      "Observe → Act → Reason → Evaluate"
+    ],
+    "answer": 1,
+    "explanation": "챕터 2-1에서 ORAE 사이클은 Observe(관찰) → Reason(추론) → Act(행동) → Evaluate(평가) 순서로 진행됩니다."
+  },
+  {
+    "id": "q2",
+    "question": "Reason 단계에서 모델이 반환할 수 있는 두 가지 출력 유형은?",
+    "options": [
+      "tool_result 또는 end_loop",
+      "tool_calls 또는 end_turn",
+      "action 또는 complete",
+      "thought 또는 finish"
+    ],
+    "answer": 1,
+    "explanation": "챕터 2-1에서 Reason 단계 출력은 tool_calls(도구 호출 요청) 또는 end_turn(최종 답변)으로 분기됩니다."
+  },
+  {
+    "id": "q3",
+    "question": "Act 단계에서 실제 도구를 실행하는 주체는?",
+    "options": [
+      "LLM 모델 내부",
+      "하네스(harness) 코드",
+      "사용자",
+      "외부 API 서버"
+    ],
+    "answer": 1,
+    "explanation": "챕터 2-1에서 Act 단계는 '모델이 도구를 호출하는 것이 아니라 하네스(harness) 코드가 모델의 tool_calls 명세를 읽고 실제 도구를 실행한다'고 명시합니다."
+  },
+  {
+    "id": "q4",
+    "question": "Chain-of-Thought(CoT)와 에이전틱 루프의 근본적인 차이는?",
+    "options": [
+      "CoT는 도구를 사용하고, 루프는 도구를 사용하지 않는다",
+      "CoT는 단일 forward pass 안의 내부 추론이고, 루프는 여러 번 모델을 호출하며 외부 관찰을 반영한다",
+      "CoT는 강화학습이 필요하고, 루프는 필요하지 않다",
+      "CoT는 항상 더 많은 토큰을 소비한다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 2-2에서 Chain-of-Thought는 단일 forward pass 안에서 이루어지는 내부 추론 과정이며, 루프처럼 외부 도구를 호출하거나 관찰을 반영하지 않는다고 설명합니다."
+  },
+  {
+    "id": "q5",
+    "question": "Self-Consistency 기법이 GSM8K 벤치마크에서 표준 CoT 대비 달성한 성능 향상은?",
+    "options": [
+      "+5.3%",
+      "+11.0%",
+      "+17.9%",
+      "+24.2%"
+    ],
+    "answer": 2,
+    "explanation": "챕터 2-2에서 Self-Consistency는 GSM8K에서 +17.9%, SVAMP에서 +11.0%, AQuA에서 +12.2%를 기록했다고 명시합니다."
+  },
+  {
+    "id": "q6",
+    "question": "에이전트-컴퓨터 인터페이스(ACI) 설계 원칙으로 옳은 것은?",
+    "options": [
+      "도구는 많을수록 모델에게 선택지가 많아져 좋다",
+      "에러 메시지는 짧고 기술적일수록 좋다",
+      "유사한 기능은 하나의 도구로 합쳐 응집도(cohesion)를 높인다",
+      "파라미터 이름은 간결하게 축약해 토큰을 절약한다"
+    ],
+    "answer": 2,
+    "explanation": "챕터 2-3에서 ACI 원칙은 ① 명확한 파라미터 이름과 설명, ② 기능적으로 응집된 소수의 도구, ③ 행동 가능한 에러 메시지라고 설명합니다."
+  },
+  {
+    "id": "q7",
+    "question": "Anthropic이 도구 인터페이스 표준화를 위해 제안한 프로토콜의 이름은?",
+    "options": [
+      "Tool Use Protocol(TUP)",
+      "Model Context Protocol(MCP)",
+      "Agent Communication Interface(ACI)",
+      "LLM Tool Standard(LTS)"
+    ],
+    "answer": 1,
+    "explanation": "챕터 2-3에서 Anthropic이 도구 인터페이스를 표준화하기 위해 MCP(Model Context Protocol)를 제안했다고 설명합니다."
+  },
+  {
+    "id": "q8",
+    "question": "루프 상태(State)에서 반드시 수정하지 않아야 하는 항목은?",
+    "options": [
+      "이터레이션 카운터",
+      "도구 결과 목록",
+      "원본 목표(original goal)",
+      "완료 플래그(done flag)"
+    ],
+    "answer": 2,
+    "explanation": "챕터 2-4에서 '목표(goal)는 절대로 변경해서는 안 된다'고 명시하며, 이는 목표 표류(goal drift)를 방지하기 위한 핵심 원칙입니다."
+  },
+  {
+    "id": "q9",
+    "question": "최소 에이전트 루프 구현에서 MAX_ITERATIONS 가드가 필요한 이유는?",
+    "options": [
+      "도구 실행 시간을 제한하기 위해",
+      "모델이 end_turn을 반환하지 않을 경우 루프가 무한히 돌지 않도록 안전장치를 제공하기 위해",
+      "컨텍스트 창이 초과되지 않게 하기 위해",
+      "API 비용을 정확히 예측하기 위해"
+    ],
+    "answer": 1,
+    "explanation": "챕터 2-5에서 MAX_ITERATIONS=20 가드는 모델이 도구 호출을 무한히 반복하거나 end_turn을 반환하지 않을 경우를 대비한 안전장치라고 설명합니다."
+  },
+  {
+    "id": "q10",
+    "question": "구조화 출력(JSON Schema)이 자유 텍스트 파싱보다 신뢰성이 높은 이유는?",
+    "options": [
+      "JSON이 더 적은 토큰을 소비하기 때문",
+      "JSON은 사람이 읽기 더 쉽기 때문",
+      "구조화 출력은 더 빠르게 생성되기 때문",
+      "모델이 스키마를 벗어나는 출력을 생성하지 않도록 제약해 파싱 실패를 줄이기 때문"
+    ],
+    "answer": 3,
+    "explanation": "챕터 2-4에서 JSON Schema를 통한 구조화 출력은 모델이 정해진 구조를 벗어나지 못하게 강제하여 하류 파싱 실패를 예방한다고 설명합니다."
+  },
+  {
+    "id": "q11",
+    "question": "Evaluate 단계에서 '조기 완료(premature success)'가 발생하는 원인은?",
+    "options": [
+      "평가 로직이 불충분해 모델이 실제 미완료 결과를 완료로 잘못 판단할 때",
+      "루프가 너무 빨리 실행될 때",
+      "도구 실행이 실패했을 때",
+      "컨텍스트 창이 부족할 때"
+    ],
+    "answer": 0,
+    "explanation": "챕터 2-1에서 Evaluate 단계가 약하면 모델이 충분히 완료되지 않은 결과를 완료로 착각하는 '조기 완료(premature success)' 실패 모드가 발생한다고 설명합니다."
+  },
+  {
+    "id": "q12",
+    "question": "ReAct의 Thought-Act-Observe 패턴과 ORAE 프레임을 비교할 때 ORAE에만 명시적으로 포함된 단계는?",
+    "options": [
+      "Observe",
+      "Reason",
+      "Act",
+      "Evaluate"
+    ],
+    "answer": 3,
+    "explanation": "챕터 2-1에서 ReAct 원논문에는 Evaluate 단계가 명시적으로 없다고 설명합니다. ORAE는 이를 명시적으로 추가해 루프가 목표를 달성했는지를 별도로 평가합니다."
+  },
+  {
+    "id": "q13",
+    "question": "stop_reason == \"tool_use\" 신호가 의미하는 것은?",
+    "options": [
+      "모델이 작업 완료를 선언했다",
+      "루프를 즉시 종료해야 한다는 신호다",
+      "모델이 도구를 실행하고 결과를 받아 계속 작업하고 싶다는 신호다",
+      "오류가 발생해 재시도가 필요하다는 신호다"
+    ],
+    "answer": 2,
+    "explanation": "챕터 2-1과 2-3에서 stop_reason == \"tool_use\"는 모델이 추론을 멈추고 도구 실행을 요청하는 신호이며, 하네스가 도구를 실행한 뒤 결과를 컨텍스트에 추가하고 모델을 재호출해야 한다고 설명합니다."
+  },
+  {
+    "id": "q14",
+    "question": "ACI에서 에러 메시지를 '행동 가능하게(actionable)' 작성해야 하는 이유는?",
+    "options": [
+      "에러 메시지가 짧을수록 좋기 때문",
+      "사용자가 에러를 이해해야 하기 때문",
+      "에러 메시지가 컨텍스트를 절약하기 때문",
+      "모델은 에러 메시지를 읽고 다음 행동을 결정해야 하므로, 수정 방향이 담긴 에러 메시지가 루프 복구를 돕기 때문"
+    ],
+    "answer": 3,
+    "explanation": "챕터 2-3에서 모델은 에러 메시지를 읽고 다음 단계를 판단하기 때문에, 단순한 오류 코드가 아닌 수정 방향을 포함한 행동 가능한(actionable) 에러 메시지가 중요하다고 설명합니다."
+  }
+]

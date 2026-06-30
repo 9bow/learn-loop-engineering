@@ -1,0 +1,141 @@
+---
+title: "Loop Memory: From Scratchpad to NOTES.md"
+description: Classifying agentic loop memory into working, persistent, and external layers — design principles and implementation patterns for each.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Distinguish the three loop memory layers (working, persistent, external) and describe each layer's role"
+  - "Understand why structured note-taking matters for long-running agent performance"
+  - "Apply sub-agent context isolation to prevent memory contamination"
+prerequisites:
+  - "5-1-attention-budget-context-rot"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Effective context engineering for AI agents"
+    url: "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — How we built our multi-agent research system"
+    url: "https://www.anthropic.com/engineering/multi-agent-research-system"
+    accessed: "2026-06-30"
+  - title: "Lilian Weng — LLM Powered Autonomous Agents"
+    url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
+    accessed: "2026-06-30"
+---
+
+## What Does "Memory" Mean for an LLM?
+
+Humans consolidate what they learn each day into long-term memory during sleep. LLMs have no such biological mechanism. Model weights do not change during inference. So where is "what was discovered in the previous iteration" stored during an agentic loop? The context window is the only working memory, and when that window fills up or gets reinitialized, information is lost. Overcoming this fundamental constraint requires intentional **loop memory architecture**.
+
+Lilian Weng's LLM agent framework distinguished agent memory into sensory, short-term, and long-term categories. From a loop engineering perspective, these translate practically into three layers.
+
+```text
+┌────────────────────────────────────────────────────────────┐
+│                  Loop Memory Layer Architecture             │
+├────────────────┬───────────────────────────────────────────┤
+│  Layer         │  Characteristics and Examples              │
+├────────────────┼───────────────────────────────────────────┤
+│  Working       │  In-context working memory                 │
+│  Memory        │  • Current iteration's reasoning process   │
+│                │  • Scratchpad / internal monologue          │
+│                │  • Tool results from this loop turn         │
+├────────────────┼───────────────────────────────────────────┤
+│  Persistent    │  Survives loop restarts                    │
+│  Memory        │  • Files: CLAUDE.md, NOTES.md, fix_plan.md│
+│                │  • Checkpoint state                         │
+│                │  • The codebase itself (modified files)     │
+├────────────────┼───────────────────────────────────────────┤
+│  External      │  Retrieved from a dedicated store           │
+│  Memory        │  • Vector database (semantic search)        │
+│                │  • Relational DB / KV store                 │
+│                │  • Prior run logs / traces                  │
+└────────────────┴───────────────────────────────────────────┘
+```
+
+## Working Memory: The Scratchpad
+
+The scratchpad is the space where the model records its internal reasoning before producing a response. The `<thinking>` tag in reasoning models is the clearest example. In regular agents, the equivalent is prompting the model to write out "what I have found" and "what to do next" as text before tool calls.
+
+Key characteristics of working memory:
+
+- **Fast.** The model writes and reads directly — no extra tool calls required.
+- **Volatile.** It disappears when the context is reinitialized or compaction happens.
+- **Capacity-limited.** It occupies part of the context window.
+
+Working memory alone cannot sustain a long-running agent. Keeping findings accumulated across many iterations, a list of completed tasks, and unresolved problems alive through compaction events requires persistent memory.
+
+## Persistent Memory: File-Based Note-Taking
+
+The simplest and most powerful implementation of persistent memory is the **file system**. Claude Code's CLAUDE.md, the PROMPT.md used in Geoffrey Huntley's Ralph pattern, and NOTES.md that the agent itself writes all belong to this category.
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+NOTES_FILE = "NOTES.md"
+
+def save_finding(key: str, value: str) -> None:
+    """Store an important agent discovery in persistent memory."""
+    entry = f"\n## {key}\n{value}\n"
+    append_to_file(NOTES_FILE, entry)
+
+
+def load_relevant_notes(query: str) -> str:
+    """Restore relevant notes after a loop restart or compaction."""
+    notes = read_file(NOTES_FILE)
+    # Simple version: return full notes
+    # Advanced version: extract only the sections relevant to the query (combine with JIT)
+    return notes
+
+
+# Example usage in a loop
+def run_loop_with_memory(task: str):
+    # Restore prior progress
+    prior_notes = load_relevant_notes(task)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": task},
+    ]
+    if prior_notes:
+        messages.append({"role": "assistant",
+                         "content": f"[Prior notes]\n{prior_notes}"})
+
+    while True:
+        response = model.generate(messages)
+        if response.stop_reason == "end_turn":
+            break
+        # ... tool execution ...
+        # Save important findings to file immediately
+        if response.has_finding():
+            save_finding(response.finding_key, response.finding_value)
+```
+
+The key to structured note-taking is **prompting the agent to write its own notes**. Rather than the generic instruction "record what you find," providing a structured schema — "completed tasks," "pending tasks," "discovered issues," "decisions made" — produces far more usable notes.
+
+| Note Category | Example Content | When to Save |
+|--------------|----------------|-------------|
+| Completed action | "auth.py modified — JWT validation added" | Immediately after each sub-task completes |
+| Discovered fact | "No users.role column in DB schema" | When a key fact emerges from tool output |
+| Decision made | "Support Python 3.11+ only" | When a design choice is confirmed |
+| Pending item | "Rate limiting not yet implemented" | When handing off to the next iteration |
+
+## External Memory: Vector Databases and Retrieval
+
+When a long-running agent must deal with thousands of files or prior execution logs, file-based notes alone are insufficient. Storing information in a **vector database** as embeddings and retrieving only what is needed through semantic search overcomes this limitation.
+
+That said, external memory comes with higher implementation complexity, retrieval latency, and the risk that a bad search result leads the agent astray. For straightforward tasks, file-based persistent memory is far more practical.
+
+## Sub-Agent Context Isolation
+
+In multi-agent systems, there is an important design principle: **each sub-agent should operate in its own isolated context**. In Anthropic's multi-agent research system, sub-agents each run in a separate context window, ensuring the orchestrator's context is not contaminated by sub-agent execution details. When a sub-agent finishes its work, it returns only a **summary** to the orchestrator.
+
+This isolation solves two problems simultaneously. First, it conserves the orchestrator's attention budget. Second, it prevents one sub-agent's errors from contaminating the context of other agents.
+
+## Memory Layer Selection Guide
+
+Which memory layer should you use, and when?
+
+- **Short loop (fewer than 10 iterations, single task):** Working memory (the context) alone is sufficient.
+- **Medium loop (10–50 iterations, complex task):** File-based persistent memory combined with compaction.
+- **Long loop (50+ iterations, whole-codebase work):** File memory + JIT retrieval + sub-agent isolation.
+- **Multi-session agent:** External database memory + structured state serialization.
+
+Loop memory design is an architectural choice about where and in what form to store "what is needed right now" versus "what might be needed later." The next chapter examines the JIT retrieval strategy that works in tandem with this memory hierarchy.

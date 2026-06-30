@@ -1,0 +1,169 @@
+---
+title: "Plan-and-Execute: Separating Planning from Execution"
+description: Explore the Plan-and-Execute pattern, where a Planner decomposes a complex task upfront and an Executor carries out each step in sequence.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Explain the benefits and trade-offs of separating Planner and Executor roles"
+  - "Understand the Stale Plan failure mode and the Replanning strategy"
+  - "Distinguish Plan-and-Solve prompting from the agentic Plan-and-Execute pattern"
+prerequisites:
+  - "3-1-react"
+estimated_minutes: 28
+references:
+  - title: "Wang et al. — Plan-and-Solve Prompting (arXiv:2305.04091)"
+    url: "https://arxiv.org/abs/2305.04091"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "LangGraph — Plan-and-Execute"
+    url: "https://langchain-ai.github.io/langgraph/"
+    accessed: "2026-06-30"
+---
+
+## Why Plan Before Acting?
+
+The ReAct loop makes decisions on the fly: at every iteration it asks "what should I do right now?" This works well for short tasks, but breaks down for complex work requiring dozens of steps. When the model focuses only on the present state, it can lose sight of the overall goal — a phenomenon known as **goal drift**. As the task lengthens, the rationale behind earlier decisions fades from context.
+
+Plan-and-Execute solves this through role separation. A **Planner** receives the task and produces a full execution plan. An **Executor** then carries out each step of that plan in order. With the roles split, the Planner maintains a global view while the Executor concentrates on the specifics of each individual step.
+
+## Plan-and-Solve Prompting vs. Agentic Plan-and-Execute
+
+Two related concepts must be kept distinct.
+
+**Plan-and-Solve prompting** (Wang et al., ACL 2023, arXiv:2305.04091) is a single-call technique. A system prompt tells the model to "first devise a plan, then follow the plan to solve the problem" — all within one inference pass, without any tool calls. It is primarily a prompt-engineering technique for improving reasoning quality.
+
+**Agentic Plan-and-Execute** extends this into a multi-step loop. The Planner outputs a structured plan, the Executor performs each step with real tool calls, and a Replanner updates the plan when reality diverges from it.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                  Plan-and-Execute Flow                           │
+│                                                                 │
+│  Task Input                                                     │
+│       ▼                                                         │
+│  ┌──────────┐   Plan (JSON array of steps)                      │
+│  │ Planner  │──────────────────────────────────┐                │
+│  └──────────┘                                  │                │
+│                                                ▼                │
+│                               ┌────────────────────────────┐   │
+│                               │  Step 1 (Executor)         │   │
+│                               │  → tool call → result      │   │
+│                               └──────────┬─────────────────┘   │
+│                                          ▼                      │
+│                               ┌────────────────────────────┐   │
+│                               │  Step 2 (Executor)         │   │
+│                               │  → tool call → result      │   │
+│                               └──────────┬─────────────────┘   │
+│                                          ▼                      │
+│                               ┌────────────────────────────┐   │
+│                               │  Plan still valid?         │   │
+│                               │  YES → next step           │   │
+│                               │  NO  → invoke Replanner    │   │
+│                               └──────────┬─────────────────┘   │
+│                                          ▼                      │
+│                                   Final answer                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class Step:
+    index: int
+    description: str
+    tool: str
+    arguments: dict[str, Any]
+    result: str = ""
+    completed: bool = False
+
+def plan_and_execute(model, tools: dict, task: str, max_replan: int = 2) -> str:
+    # 1. Planner: construct the full execution plan
+    plan_prompt = (
+        f"Task: {task}\n\n"
+        "Write a step-by-step execution plan as a JSON array. "
+        "Each item: {'step': N, 'description': '...', 'tool': '...', 'args': {...}}"
+    )
+    plan_response = model.generate([{"role": "user", "content": plan_prompt}])
+    steps = parse_plan(plan_response.text)  # parse JSON
+
+    replan_count = 0
+    results = []
+
+    for i, step in enumerate(steps):
+        # 2. Executor: perform the current step
+        fn = tools.get(step.tool)
+        if fn is None:
+            step_result = f"ERROR: tool '{step.tool}' not found"
+        else:
+            try:
+                step_result = fn(**step.arguments)
+            except Exception as e:
+                step_result = f"ERROR: {e}"
+
+        step.result = step_result
+        step.completed = True
+        results.append(step)
+
+        # 3. Detect plan-reality mismatch and trigger Replanning
+        if "ERROR" in step_result and replan_count < max_replan:
+            replan_prompt = (
+                f"Original task: {task}\n"
+                f"Completed steps: {[s.description for s in results if s.completed]}\n"
+                f"Failed step: {step.description}\n"
+                f"Error: {step_result}\n"
+                "Revise or create a new plan for the remaining steps. Return a JSON array."
+            )
+            replan_resp = model.generate([{"role": "user", "content": replan_prompt}])
+            remaining_steps = parse_plan(replan_resp.text)
+            steps = list(results) + remaining_steps
+            replan_count += 1
+
+    # 4. Final synthesis
+    context = "\n".join(
+        f"Step {s.index}: {s.description} → {s.result}" for s in results
+    )
+    final_prompt = f"Task: {task}\n\nExecution results:\n{context}\n\nWrite the final answer."
+    return model.generate([{"role": "user", "content": final_prompt}]).text
+```
+
+## The Stale Plan Problem
+
+The most typical failure mode of Plan-and-Execute is the **stale plan**. A plan is built on the information available at task-start. During execution, new information may arrive that invalidates parts of the plan.
+
+For example, suppose the task is "compare the latest prices of competitors A and B," and the plan is: "Step 1 — search A's price; Step 2 — search B's price; Step 3 — produce a comparison table." If Step 1 reveals that company A has shut down, Steps 2 and 3 become meaningless. Without Replanning, execution continues and produces a pointless comparison table.
+
+Two approaches address this:
+
+| Strategy | Description | Cost |
+|----------|-------------|------|
+| Conditional Replanning | A guard after each step checks whether the plan still needs to change | Medium |
+| Dynamic Plan | No fixed plan; the next step is decided after each result (converges toward ReAct) | High |
+| Rigid Plan | Execute the plan as-is; ignore errors | Low |
+
+## Choosing Between Plan-and-Execute and ReAct
+
+The two patterns are not mutually exclusive. Frameworks like LangGraph encourage a layered structure: "the Planner produces a plan, and each step internally runs a ReAct loop."
+
+```text
+┌───────────────────────────────────────────────┐
+│  Pattern Selection by Task Characteristics    │
+├─────────────────────┬─────────────────────────┤
+│  Prefer ReAct       │  Prefer Plan-and-Execute │
+├─────────────────────┼─────────────────────────┤
+│ Exploratory/adaptive│ Procedure is clear upfront│
+│ Short-horizon goals │ Long, multi-step goals   │
+│ Planning cost is high│ Full context needed early│
+│ Real-time feedback  │ Plan must be auditable   │
+└─────────────────────┴─────────────────────────┘
+```
+
+One practical heuristic: **if a human needs to review the plan before execution starts, use Plan-and-Execute.** Feeding the Planner's output through a human-in-the-loop approval step before the Executor runs is especially valuable for high-stakes automation tasks.
+
+The next chapter covers Self-Refine — which critiques and improves output within a single attempt — and Self-Consistency, which boosts reliability through majority voting across independent samples.

@@ -1,0 +1,163 @@
+---
+title: "ReWOO and LLMCompiler: Efficiency-Oriented Loops"
+description: Learn how ReWOO eliminates token waste by planning all tool calls before seeing any observation, and how LLMCompiler uses dependency-graph-based parallel execution to cut latency.
+sidebar:
+  order: 6
+learning_objectives:
+  - "Explain how ReWOO's Planner-Worker-Solver three-phase design improves token efficiency"
+  - "Understand how LLMCompiler's DAG execution plan achieves latency reduction through parallelism"
+  - "Cite verified performance figures for both patterns and judge their applicable conditions"
+prerequisites:
+  - "3-1-react"
+estimated_minutes: 32
+references:
+  - title: "Xu et al. — ReWOO: Decoupling Reasoning from Observations for Efficient Augmented Language Models (arXiv:2305.18323)"
+    url: "https://arxiv.org/abs/2305.18323"
+    accessed: "2026-06-30"
+  - title: "Kim et al. — An LLM Compiler for Parallel Function Calling (arXiv:2312.04511)"
+    url: "https://arxiv.org/abs/2312.04511"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## A Different Direction: Cost Optimization
+
+Previous chapters explored ways to **extend** or **improve the quality** of ReAct: Reflexion learns from failure, Self-Refine iteratively polishes output, ToT/GoT broaden the search space. All of these approaches increase the number of LLM calls.
+
+ReWOO and LLMCompiler go in the opposite direction. Can we achieve the same or better result with **fewer tokens and lower latency**? Starting from that question, both patterns share the core principle of "plan all tool calls before executing them," while each targets a different source of inefficiency.
+
+## ReWOO: Planning Without Observations
+
+One of the largest sources of token waste in ReAct is its **interleaved structure**. Every Thought, Action, and Observation is appended to the context with each iteration. Each new Thought must read the entire accumulated context — including prior Observations. The longer those observations, the faster the context bloats, and that cost propagates to every subsequent LLM call.
+
+ReWOO (Xu et al., arXiv:2305.18323) solves this by having the Planner **sketch the entire execution plan before making any tool call**. Tool results are not known at planning time, so they are referenced via **variable placeholders** such as `#E1`, `#E2`. The Worker fills in real values, and the Solver synthesizes the final answer from the collected evidence.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                  ReWOO: Three Phases                         │
+│                                                              │
+│  ① Planner                                                   │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Input:  task                                        │   │
+│  │  Output: execution plan (tools + params + deps)      │   │
+│  │  #E1 = search("Eiffel Tower height")                 │   │
+│  │  #E2 = search("Empire State Building height")        │   │
+│  │  #E3 = calculator("#E1 - #E2")   ← depends on E1,E2 │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                          ▼                                   │
+│  ② Worker (execute tools only — no interleaved reasoning)    │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  E1 → "330 m"                                        │   │
+│  │  E2 → "443 m"                                        │   │
+│  │  E3 → "330 - 443 = -113"                             │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                          ▼                                   │
+│  ③ Solver                                                    │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Input:  task + (E1=330 m, E2=443 m, E3=−113 m)     │   │
+│  │  Output: "The Eiffel Tower is 113 m shorter."        │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Because the Planner never sees actual tool results, no Observations accumulate in its context. The ReWOO paper reported **5× token efficiency** and **+4% performance** over ReAct on HotpotQA. That the token savings far outpace the performance gain reflects the pattern's core value proposition.
+
+### Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+import re
+
+def rewoo(model, tools: dict, task: str) -> str:
+    # ① Planner: build the full plan without any tool results
+    plan_prompt = (
+        f"Task: {task}\n\n"
+        "Available tools: " + ", ".join(tools.keys()) + "\n\n"
+        "Write a complete execution plan. Each step in the form '#En = tool_name(args)'.\n"
+        "Reference previous results using their #En variable."
+    )
+    plan_text = model.generate([{"role": "user", "content": plan_prompt}]).text
+
+    # Parse plan: extract lines of the form "#E1 = search(...)"
+    steps = re.findall(r"(#E\d+)\s*=\s*(\w+)\((.+?)\)", plan_text)
+
+    # ② Worker: execute in order, substituting earlier variable values
+    evidence: dict[str, str] = {}
+    for var, tool_name, args_str in steps:
+        for k, v in evidence.items():
+            args_str = args_str.replace(k, v)
+        fn = tools.get(tool_name)
+        if fn:
+            try:
+                evidence[var] = str(fn(args_str))
+            except Exception as e:
+                evidence[var] = f"ERROR: {e}"
+        else:
+            evidence[var] = f"ERROR: tool '{tool_name}' not found"
+
+    # ③ Solver: generate final answer from task + collected evidence
+    evidence_text = "\n".join(f"{k}: {v}" for k, v in evidence.items())
+    solve_prompt = (
+        f"Task: {task}\n\nCollected evidence:\n{evidence_text}\n\n"
+        "Write the final answer based on the evidence above."
+    )
+    return model.generate([{"role": "user", "content": solve_prompt}]).text
+```
+
+## LLMCompiler: Optimizing Parallel Function Calling
+
+Where ReWOO targets **token waste**, LLMCompiler (Kim et al., ICML 2024, arXiv:2312.04511) targets **latency**. ReAct executes tool calls sequentially: Thought1 → Action1 → Observation1 → Thought2 → Action2 — even when two tool calls are completely independent, they wait in line.
+
+LLMCompiler draws inspiration from programming language compilers. Just as a compiler analyzes data-dependency graphs (DAGs) to identify instructions that can be executed in parallel, LLMCompiler analyzes the dependencies between tool calls and runs independent ones concurrently.
+
+```text
+┌───────────────────────────────────────────────────────────────┐
+│         LLMCompiler: Example Execution DAG                    │
+│                                                               │
+│  Task: "Find stock price of A, stock price of B,             │
+│         and CEO names of both companies, then compare."       │
+│                                                               │
+│  ① Planner (builds the DAG)                                   │
+│                                                               │
+│      ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
+│      │ E1: A price │  │ E2: B price │  │ E3: A CEO   │       │
+│      │ search("A") │  │ search("B") │  │ search("A") │       │
+│      └──────┬──────┘  └──────┬──────┘  └──────┬──────┘       │
+│             │                │                │               │
+│             └────────────────┴────────────────┘               │
+│                              ▼                                │
+│                   ┌─────────────────────┐                     │
+│                   │ E4: synthesis       │                     │
+│                   │ (depends on E1,E2,E3)                    │
+│                   └──────────┬──────────┘                     │
+│                              ▼                                │
+│  ② Executor (parallel execution)                              │
+│     E1, E2, E3 run simultaneously → collect → run E4         │
+│                                                               │
+│  ③ Joiner: produce final answer or request additional plan   │
+└───────────────────────────────────────────────────────────────┘
+```
+
+E1, E2, and E3 are independent and can run simultaneously. Only E4 needs to wait for all three. This parallelism dramatically cuts end-to-end wall-clock time.
+
+The LLMCompiler paper (ICML 2024) reported up to **3.7× latency reduction** and up to **6.7× cost savings**. The cost savings exceed the latency savings because parallelization also reduces intermediate context accumulation and eliminates unnecessary intermediate LLM calls.
+
+## Comparing the Two Patterns
+
+| Dimension | ReWOO | LLMCompiler |
+|-----------|-------|------------|
+| Target inefficiency | Token waste (context accumulation) | Latency (sequential tool calls) |
+| Core mechanism | Plan everything before any observation | DAG-based parallel execution |
+| Best task type | Tasks with long, numerous tool outputs | Tasks with many independent tool calls |
+| Upfront planning required | Yes | Yes |
+| Dynamic re-planning | Limited | Dynamic via Joiner |
+| Verified numbers | 5× token savings, HotpotQA +4% | Up to 3.7× latency reduction, up to 6.7× cost savings |
+
+**Shared weakness**: If a tool fails in a way the plan did not anticipate, the entire plan can collapse. ReWOO's Worker continues by default on error, so an early failure can corrupt downstream steps. LLMCompiler's Joiner mitigates this, but the Joiner itself is an additional LLM call.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="03-single-agent-patterns" lang="en" client:load />

@@ -1,0 +1,202 @@
+---
+title: "종료 조건의 분류학"
+description: 에이전틱 루프를 언제 어떻게 멈춰야 하는지 — 의미적 완료, 반복 한도, 자원 상한, 무진전 감지 등 종료 조건의 전체 분류를 살펴봅니다.
+sidebar:
+  order: 1
+learning_objectives:
+  - "에이전틱 루프의 종료 조건을 네 가지 유형으로 분류하고 각각의 특성을 설명할 수 있다"
+  - "end_turn, max_iterations, 자원 상한, 무진전 감지를 코드로 구현할 수 있다"
+  - "어떤 종료 조건이 없을 때 어떤 실패가 발생하는지 예측할 수 있다"
+prerequisites:
+  - "2-5-minimal-agent-loop"
+estimated_minutes: 28
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+---
+
+## 루프를 멈추는 것도 설계다
+
+"루프를 돌게 만드는 것"에 집중하다 보면 "루프를 멈추는 것"을 소홀히 하기 쉽다. 그러나 종료 조건이 없는 에이전틱 루프는 무한히 실행되거나, 무한정 비용을 발생시키거나, 같은 실수를 끝없이 반복하는 **둠 루프(doom loop)**로 전락한다. 2023년 초 AutoGPT와 BabyAGI가 바이럴되었다가 급속도로 식어버린 이유 중 하나도 종료 조건이 없거나 불명확한 루프가 제어 불능으로 치달았기 때문이다.
+
+루프 종료 조건은 크게 네 가지 유형으로 분류할 수 있다. 이 분류표를 처음에 파악해 두면 설계 시 누락 없이 대응할 수 있다.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                  루프 종료 조건 분류표                          │
+├─────────────────┬────────────────────────────────────────────┤
+│  유형           │  설명 및 예시                               │
+├─────────────────┼────────────────────────────────────────────┤
+│  ① 의미적 완료  │  모델이 "작업 완료"를 선언 (stop_reason     │
+│  (Semantic)    │  == "end_turn"). 올바른 성공 종료.           │
+├─────────────────┼────────────────────────────────────────────┤
+│  ② 반복 한도   │  최대 이터레이션 수 도달. 하드 안전망.       │
+│  (Iteration)   │  예: max_iterations = 30                   │
+├─────────────────┼────────────────────────────────────────────┤
+│  ③ 자원 상한   │  토큰 수, 비용(USD), 실행 시간(wall-clock)  │
+│  (Resource)    │  초과. 예: max_tokens = 200_000             │
+├─────────────────┼────────────────────────────────────────────┤
+│  ④ 무진전 감지 │  연속 N회 출력이 동일하거나 목표 대비        │
+│  (No-progress) │  진전이 없음 감지. 출력 해시 비교 등.        │
+└─────────────────┴────────────────────────────────────────────┘
+```
+
+이 네 가지 중 하나라도 빠지면 그에 대응하는 실패 모드가 생긴다. ①이 없으면 루프가 끝날 수 없다. ②가 없으면 모델이 계속 "더 해야 한다"고 착각하면 영원히 돈다. ③이 없으면 비용이 폭발한다. ④가 없으면 같은 실수를 무한히 반복하는 둠 루프에 빠진다.
+
+## 유형 ①: 의미적 완료 (end_turn)
+
+모델이 스스로 작업이 완료됐다고 판단하고 `stop_reason == "end_turn"` 또는 `finish_reason == "stop"`을 반환하면 루프를 종료한다. 이것이 **정상적인 성공 종료 경로**다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+while True:
+    response = model.generate(messages, tools=tools)
+
+    # 의미적 완료: 모델이 "끝"을 선언
+    if response.stop_reason == "end_turn":
+        return {"status": "success", "result": response.content}
+
+    # 아직 할 일이 있음: 도구 실행 후 계속
+    for call in response.tool_calls:
+        result = run_tool(call)
+        messages.append(tool_result(result))
+```
+
+이 경로만 믿으면 위험하다. 모델은 실제로 작업이 완료되지 않았음에도 "완료됐다"고 선언할 수 있다. 이른 성공 종료(premature success)는 Anthropic의 장기 실행 에이전트 가이드에서 명시적으로 경계하는 실패 모드다. 의미적 완료를 **검증자(verifier)**가 재확인하는 구조가 필요하다(6-2, 6-3, 6-4 챕터 참조).
+
+## 유형 ②: 반복 한도 (max_iterations)
+
+어떤 상황에서도 반드시 루프를 멈추게 하는 **하드 안전망**이다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+MAX_ITERATIONS = 30
+
+for iteration in range(MAX_ITERATIONS):
+    response = model.generate(messages, tools=tools)
+
+    if response.stop_reason == "end_turn":
+        return {"status": "success", "result": response.content}
+
+    for call in response.tool_calls:
+        result = run_tool(call)
+        messages.append(tool_result(result))
+
+# 최대 반복 수 도달 시
+return {"status": "max_iterations_exceeded", "partial": get_current_state()}
+```
+
+max_iterations를 얼마로 설정할지는 태스크 복잡도에 따라 다르다. 단순 QA는 5회, 복잡한 코딩 에이전트는 50~100회가 적정할 수 있다. 너무 낮으면 정상 작업이 중단되고, 너무 높으면 안전망 역할을 못 한다.
+
+## 유형 ③: 자원 상한 (Resource Caps)
+
+| 자원 유형 | 상한 예시 | 초과 시 처리 |
+|----------|----------|------------|
+| 입력 토큰 수 | 200,000 토큰 | compaction 또는 강제 종료 |
+| 누적 비용 | $5.00 USD | 작업 중단 + 사용자 알림 |
+| 실행 시간 | 30분 wall-clock | 타임아웃 종료 |
+| 출력 토큰 수 | 10,000 토큰/호출 | 응답 잘림 방지 처리 |
+
+자원 상한은 특히 **예측 불가능한 반복(open-ended loops)**에서 필수다. 버그를 찾아서 고치는 에이전트가 해결할 수 없는 버그를 만나면 무한정 도구를 호출할 수 있다. 시간 또는 비용 상한이 없으면 사용자가 인지하기 전에 큰 비용이 발생한다.
+
+## 유형 ④: 무진전 감지 (No-progress Detection)
+
+가장 미묘한 종료 조건이다. 루프가 돌고 있지만 실질적인 진전이 없는 상태를 감지한다.
+
+가장 단순한 구현은 **출력 해시 비교**다. 연속 두 이터레이션의 모델 출력(또는 코드베이스 상태)이 동일하면 루프가 제자리를 맴돌고 있다는 신호다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+import hashlib
+
+def detect_no_progress(response_history: list, window: int = 3) -> bool:
+    """
+    최근 N개 응답의 해시가 모두 동일하면 무진전으로 판단.
+    """
+    if len(response_history) < window:
+        return False
+
+    recent = response_history[-window:]
+    hashes = [
+        hashlib.md5(str(r).encode()).hexdigest()
+        for r in recent
+    ]
+    return len(set(hashes)) == 1   # 모두 동일 = 제자리걸음
+
+
+# 루프에서 사용
+response_history = []
+
+for iteration in range(MAX_ITERATIONS):
+    response = model.generate(messages, tools=tools)
+    response_history.append(response.content)
+
+    if detect_no_progress(response_history, window=3):
+        return {"status": "no_progress", "last_state": get_current_state()}
+
+    if response.stop_reason == "end_turn":
+        return {"status": "success", "result": response.content}
+    # ...
+```
+
+무진전 감지는 해시 비교 외에 더 정교한 방법도 있다. 완료된 하위 작업 목록이 늘어나지 않는지, 수정된 파일 수가 증가하지 않는지, 테스트 통과율이 개선되지 않는지 등을 확인하는 도메인 특화 지표를 활용할 수 있다.
+
+## 네 가지 조건을 모두 포함한 루프
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+def run_safe_loop(task: str, tools: list,
+                  max_iters: int = 30,
+                  max_tokens: int = 200_000,
+                  max_cost_usd: float = 5.0,
+                  timeout_sec: int = 1800) -> dict:
+
+    messages = [{"role": "user", "content": task}]
+    response_history = []
+    start_time = now()
+    total_tokens = 0
+    total_cost = 0.0
+
+    for i in range(max_iters):
+        # ③ 자원 상한 확인
+        if total_tokens >= max_tokens:
+            return {"status": "token_limit_exceeded"}
+        if total_cost >= max_cost_usd:
+            return {"status": "cost_limit_exceeded"}
+        if elapsed(start_time) >= timeout_sec:
+            return {"status": "timeout"}
+
+        response = model.generate(messages, tools=tools)
+        total_tokens += response.usage.total_tokens
+        total_cost += response.usage.cost_usd
+
+        response_history.append(response.content)
+
+        # ① 의미적 완료
+        if response.stop_reason == "end_turn":
+            return {"status": "success", "result": response.content}
+
+        # ④ 무진전 감지
+        if detect_no_progress(response_history, window=3):
+            return {"status": "no_progress"}
+
+        for call in response.tool_calls:
+            result = run_tool(call)
+            messages.append(tool_result(result))
+
+    # ② 반복 한도 (for loop 종료)
+    return {"status": "max_iterations_exceeded"}
+```
+
+Simon Willison은 "아무것도 없는 것보다 멈추는 것이 낫다"고 말했다. 루프가 실패를 선언하면 재시작하거나 사용자에게 도움을 요청할 수 있다. 멈추지 않는 루프는 아무것도 할 수 없다. 종료 조건은 루프의 안전 밸브이자 자원 보호막이다.

@@ -1,0 +1,131 @@
+---
+title: "Orchestrator-Worker Systems in Production"
+description: Analyze Anthropic's multi-agent research system as a case study in producing orchestrator-worker architectures, examining the design decisions and performance characteristics that matter in production.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Describe the architecture of Anthropic's multi-agent system and its verified performance numbers"
+  - "Write the four elements of a task spec that workers need to operate reliably"
+  - "Understand the conditions that produce synchronous bottlenecks and how to address them"
+prerequisites:
+  - "4-4-orchestrator-workers"
+estimated_minutes: 32
+references:
+  - title: "Anthropic — How we built our multi-agent research system"
+    url: "https://www.anthropic.com/engineering/multi-agent-research-system"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## Beyond the Limits of a Single Agent
+
+The orchestrator-worker pattern introduced in chapter 4-4 is conceptually simple. But actually operating this structure in production is a different challenge. Anthropic's multi-agent research system is the most concretely documented example of applying this structure in practice.
+
+Start with the key numbers. Running the same research task with a multi-agent system versus a single Claude Opus agent produced a **90.2% improvement in performance** on internal evaluations. This system consumes approximately **15× more tokens** than a single chat interaction. And **80% of performance variance is explained by token usage** — the more tokens the system uses, the better the results, and this correlation is strong.
+
+## System Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│          Anthropic Multi-Agent Research System Architecture     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│    ┌─────────────────────────────────────────────────┐         │
+│    │           Orchestrator (Opus-class)              │         │
+│    │  • Decomposes the research question             │         │
+│    │  • Prioritizes subtasks                         │         │
+│    │  • Synthesizes worker results, judges quality   │         │
+│    │  • Decides whether further investigation needed │         │
+│    └─────────┬───────────────────────────────────────┘         │
+│              │ task spec delivery                               │
+│    ┌─────────▼──────────────────────────────────────┐          │
+│    │           Worker Pool (Sonnet-class)            │          │
+│    │  ┌─────────┐  ┌─────────┐  ┌─────────┐         │          │
+│    │  │Worker 1 │  │Worker 2 │  │Worker 3 │  ...    │          │
+│    │  │(search) │  │(analyze)│  │(summary)│         │          │
+│    │  └─────────┘  └─────────┘  └─────────┘         │          │
+│    │   Each worker holds its own independent context │          │
+│    └────────────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+The **orchestrator** runs on a Claude Opus-class model. It understands the overall research goal, decomposes it into subtasks, synthesizes the results workers return, and performs meta-reasoning about what is still insufficient and what further investigation is needed.
+
+The **workers** run on Claude Sonnet-class models. Each worker receives a concrete task spec from the orchestrator and executes independently. The critical point is that **each worker has its own separate context window**. Workers do not share context with each other. This is the core mechanism that circumvents the context window limits of a single agent — workers extend effective context capacity by running in parallel isolation.
+
+## The Four Elements of a Task Spec
+
+The task spec (task specification) the orchestrator sends to each worker must contain four elements.
+
+**1. A clear goal**: State in one sentence exactly what the worker must achieve. Vague goals cause the worker's loop to lose direction.
+
+**2. Available tools**: List the tools the worker can access. Not giving workers unnecessary tools matters: the more tools available, the higher the chance a worker makes a confusing selection.
+
+**3. Expected output format**: Specify the schema the orchestrator will use to parse the worker's result. Structured JSON output makes synthesis dramatically easier than unstructured natural language.
+
+**4. Termination condition**: State explicitly when the worker's loop should stop. Conditions like "stop after finding three sources with high relevance" or "stop after a maximum of 10 searches" prevent runaway workers.
+
+This is a conceptual pseudocode example; actual API signatures may differ.
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class TaskSpec:
+    goal: str               # what must be achieved
+    tools: list             # available tool names
+    output_schema: dict     # expected JSON output schema
+    termination: str        # termination condition
+    context: str = ""       # necessary background information
+
+def create_research_task(question: str, subtopic: str) -> TaskSpec:
+    return TaskSpec(
+        goal=(
+            f"Collect information to answer the following question "
+            f"about '{subtopic}': {question}"
+        ),
+        tools=["web_search", "read_url", "save_note"],
+        output_schema={
+            "findings": [
+                {"source": "str", "summary": "str", "relevance": "high|medium|low"}
+            ],
+            "confidence": "high|medium|low",
+            "gaps": ["str"],   # areas still uncertain
+        },
+        termination=(
+            "Stop when 3 or more sources with 'high' relevance are found, "
+            "or after 10 searches, whichever comes first"
+        ),
+        context=(
+            f"Overall research context: this subtask is part of "
+            f"the '{subtopic}' analysis"
+        ),
+    )
+```
+
+## Synchronous Bottlenecks and Parallel Execution
+
+The theoretical advantage of a multi-agent system is parallel execution. Ten subtasks handled by ten workers simultaneously could be ten times faster than sequential execution. In practice, however, **synchronous bottlenecks** frequently appear.
+
+Synchronous bottlenecks arise in these situations:
+- Worker B's task depends on the output of Worker A
+- The orchestrator waits for all workers to complete before starting the next round
+- Concurrent writes to a shared resource (a file, a database) create contention
+
+Addressing this requires **explicit dependency graph management**. Subtasks with no mutual dependencies start in parallel; subtasks with dependency relationships start in the correct order. LLMCompiler (chapter 3-6) is a formalized implementation of this pattern.
+
+## Handling Worker Failures
+
+In production, a worker failing is normal, not exceptional. An exception may be thrown inside a worker's loop, the worker may return output in the wrong format, or the worker may reach its maximum iteration count and halt.
+
+When the orchestrator collects each worker's result, it must handle three states.
+
+| Worker State | Orchestrator Response |
+|---|---|
+| Success (valid output) | Add result to the synthesis pool |
+| Partial success (low confidence) | Include result at low weight, create a supplemental task |
+| Failure (error or invalid output) | Redesign the task and retry, or discard |
+
+The next chapter contrasts this structure with OpenAI Agents SDK's **handoff** model, examining how these two collaboration patterns differ structurally and in what scenarios each excels.

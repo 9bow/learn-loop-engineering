@@ -1,0 +1,196 @@
+---
+title: "Self-Refine and Self-Consistency: Iterative Improvement and Sample Voting"
+description: Compare Self-Refine, where the same model critiques and revises its own output, with Self-Consistency, which boosts accuracy through majority voting across many independent samples.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Describe the generate → critique → refine cycle of Self-Refine"
+  - "Understand the fan-out sampling and majority-vote aggregation of Self-Consistency"
+  - "Compare verified performance figures for both patterns and identify their respective failure modes"
+prerequisites:
+  - "3-1-react"
+estimated_minutes: 32
+references:
+  - title: "Madaan et al. — Self-Refine: Iterative Refinement with Self-Feedback (arXiv:2303.17651)"
+    url: "https://arxiv.org/abs/2303.17651"
+    accessed: "2026-06-30"
+  - title: "Wang et al. — Self-Consistency Improves Chain of Thought Reasoning (arXiv:2203.11171)"
+    url: "https://arxiv.org/abs/2203.11171"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## Two Self-Improvement Strategies
+
+An agent can raise the quality of its output without any external tools. **Self-Refine** has the model critique and rewrite its own answer. **Self-Consistency** collects multiple independent reasoning paths and takes the majority answer. The two patterns take opposite routes to the same goal: reducing the variance of a single sample and increasing the reliability of the final output.
+
+## Self-Refine: Generate → Critique → Refine
+
+Self-Refine (Madaan et al., NeurIPS 2023) is a simple three-phase loop that repeats until a stopping condition is met.
+
+```text
+┌───────────────────────────────────────────────────────────┐
+│                    Self-Refine Loop                        │
+│                                                           │
+│  Task Input                                               │
+│       ▼                                                   │
+│  ┌──────────┐                                             │
+│  │ Generate │  Produce initial answer                     │
+│  └────┬─────┘                                             │
+│       ▼                                                   │
+│  ┌──────────┐                                             │
+│  │ Critique │  Same model critiques the answer            │
+│  └────┬─────┘  (clarity, accuracy, completeness, etc.)   │
+│       ▼                                                   │
+│  ┌──────────┐                                             │
+│  │  Refine  │  Revise the answer based on the critique   │
+│  └────┬─────┘                                             │
+│       ▼                                                   │
+│  Stop condition met? (max iterations or "good enough")    │
+│  NO → back to Critique                                    │
+│  YES → output final answer                                │
+└───────────────────────────────────────────────────────────┘
+```
+
+The key insight is that all three phases are performed by the **same model** — no separate evaluation model is needed, and no additional training is required. Output quality improves purely through the model's capacity for self-feedback.
+
+### Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+def self_refine(model, task: str, max_iterations: int = 3) -> str:
+    """
+    Same model repeats: generate → critique → refine.
+    """
+    # Phase 1: initial generation
+    output = model.generate([
+        {"role": "user", "content": task}
+    ]).text
+
+    for i in range(max_iterations):
+        # Phase 2: critique
+        critique_prompt = (
+            f"Critique the answer below. Identify specific problems and suggest improvements. "
+            f"If the answer is already good enough, reply only 'No improvement needed.'\n\n"
+            f"Original task: {task}\n\n"
+            f"Current answer:\n{output}"
+        )
+        critique = model.generate([
+            {"role": "user", "content": critique_prompt}
+        ]).text
+
+        # Stop condition: model judges no further improvement needed
+        if "No improvement needed" in critique:
+            break
+
+        # Phase 3: refine
+        refine_prompt = (
+            f"Revise the answer below using the critique provided.\n\n"
+            f"Original task: {task}\n\n"
+            f"Current answer:\n{output}\n\n"
+            f"Critique:\n{critique}"
+        )
+        output = model.generate([
+            {"role": "user", "content": refine_prompt}
+        ]).text
+
+    return output
+```
+
+### Performance and Failure Mode
+
+The Self-Refine paper reported approximately **+20% absolute** improvement averaged across seven tasks, including dialogue generation, code optimization, and math reasoning. That said, the figure varies widely by task and evaluation criterion, so cite it with context.
+
+The most common failure mode is **sycophantic critique**. When asked to critique output it generated itself, the model tends to offer praise rather than pinpoint real problems: "This is generally well-written." A practical countermeasure is to impose mandatory criticism in the prompt — for example, "You must identify at least three specific weaknesses."
+
+## Self-Consistency: Fan-Out Sampling and Majority Vote
+
+Self-Consistency (Wang et al., ICLR 2023) takes an entirely different approach. Instead of improving a single answer, it **generates many independent samples and adopts the most frequent one**.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                  Self-Consistency Flow                        │
+│                                                              │
+│   Same task input                                            │
+│          ▼                                                   │
+│   ┌──────────────────────────────────────────────┐          │
+│   │   Fan-out: N independent samples (temp > 0)  │          │
+│   └──────────────────────────────────────────────┘          │
+│   ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐          │
+│   │Sample 1 │ │Sample 2 │ │Sample 3 │ │Sample N │          │
+│   │reason..│ │reason..│ │reason..│ │reason..│          │
+│   │ans: A  │ │ans: B  │ │ans: A  │ │ans: A  │          │
+│   └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘          │
+│        └───────────┴───────────┴────────────┘               │
+│                          ▼                                   │
+│      Majority vote: A (3 votes) > B (1 vote) → final: A     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The intuition is straightforward. Correct reasoning paths tend to converge on the same final answer across independent samples, while incorrect paths scatter across many different wrong answers. **Majority vote is therefore more reliable than any single sample.**
+
+### Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+from collections import Counter
+
+def self_consistency(
+    model,
+    task: str,
+    n_samples: int = 10,
+    temperature: float = 0.7,
+) -> str:
+    """
+    Generate N independent samples and decide by majority vote.
+    """
+    answers = []
+
+    for _ in range(n_samples):
+        # Each sample is independent: no influence from previous samples
+        response = model.generate(
+            messages=[{"role": "user", "content": task}],
+            temperature=temperature,  # > 0 to ensure diversity
+        )
+        # Extract only the final answer (discard the reasoning chain)
+        answer = extract_final_answer(response.text)
+        answers.append(answer)
+
+    # Majority vote
+    counter = Counter(answers)
+    majority_answer, vote_count = counter.most_common(1)[0]
+    return majority_answer
+```
+
+### Verified Performance Figures
+
+| Benchmark | Improvement |
+|-----------|-------------|
+| GSM8K (elementary math) | **+17.9%** absolute |
+| SVAMP (math word problems) | **+11.0%** absolute |
+| AQuA (algebraic reasoning) | **+12.2%** absolute |
+
+Self-Consistency excels at tasks where **a single correct answer exists** — math, logic, and factual lookup. For creative writing or open-ended questions, the aggregation step itself is meaningless: there is no principled way to call one creative answer "more correct" than another.
+
+## Side-by-Side Comparison
+
+| Dimension | Self-Refine | Self-Consistency |
+|-----------|-------------|-----------------|
+| Core mechanism | Iterative critique and revision | Fan-out then majority vote |
+| LLM calls | iterations × 2–3 | N samples (parallelizable) |
+| Parallelizable | No (sequential dependency) | Yes |
+| Best task type | Open-ended, writing, code quality | Math, logic, single correct answer |
+| Primary failure mode | Sycophantic critique | High variance when N is small |
+| Cost structure | Low when iterations are few | Scales linearly with N |
+
+## Practical Tips
+
+**For Self-Refine**: Supply a domain-specific rubric in the Critique prompt to counter sycophancy. For code review: "You must identify at least one security vulnerability, one performance bottleneck, and one readability issue."
+
+**For Self-Consistency**: An N below 5 gives insufficient statistical confidence. The practical range is 10–20. If temperature is too low, samples become too similar and the voting advantage disappears. A temperature of 0.5–0.8 is generally appropriate.
+
+The next chapter covers Tree of Thoughts and Graph of Thoughts, which explore the solution space far more systematically than either pattern here. The challenge becomes controlling cost as the search space widens.

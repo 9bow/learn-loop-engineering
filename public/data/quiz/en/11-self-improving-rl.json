@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "Why is an agentic loop modeled as a POMDP (Partially Observable MDP) rather than a full MDP?",
+    "options": [
+      "Because the agent cannot always observe the full state (S) and receives only partial observations (O) filtered through its context window",
+      "Because the agent cannot choose actions",
+      "Because the reward is undefined",
+      "Because the transition function is non-deterministic"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 11-1 explains that because the agent can only see partial observations (O) contained in the context window rather than the full world state (S), modeling it as a POMDP is more accurate."
+  },
+  {
+    "id": "q2",
+    "question": "What is the 'credit assignment problem' in an agentic loop?",
+    "options": [
+      "The problem of deciding who to bill for agent execution costs",
+      "The problem that, after 50 tool calls culminating in success, it is impossible to know which actions contributed to that success",
+      "The problem of distributing roles among multiple agents",
+      "The problem of calculating the cost of model weight updates"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 11-1 explains that the credit assignment problem arises when only a final reward is received at the end of a long loop — it becomes impossible to know which intermediate actions contributed to success, making learning difficult."
+  },
+  {
+    "id": "q3",
+    "question": "What does a Signature in DSPy define?",
+    "options": [
+      "A detailed prompt for 'how' to reason",
+      "Input and output field declarations and types — the 'what' to do",
+      "The list of tools to use",
+      "Model hyperparameters"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 11-2 explains that a DSPy Signature is the 'what' layer — it declares only the types and roles of input and output fields — and the specific prompt wording is automatically optimized by the compiler."
+  },
+  {
+    "id": "q4",
+    "question": "What does the DSPy Compiler do?",
+    "options": [
+      "It compiles Python code into machine code",
+      "It uses a small number of training examples and an evaluation metric to automatically search for and generate the optimal prompt for a given signature",
+      "It detects and fixes runtime errors",
+      "It optimizes model inference speed"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 11-2 explains that the DSPy compiler uses optimization algorithms such as BootstrapFewShot or MIPROv2 to automatically generate optimal few-shot examples and prompt instructions based on training data and evaluation metrics."
+  },
+  {
+    "id": "q5",
+    "question": "What role does the LLM play in AlphaEvolve?",
+    "options": [
+      "A judge that evaluates the final answer",
+      "A mutation operator in the evolutionary process that generates meaningful code variations",
+      "An orchestrator that manages the population",
+      "A fitness evaluation function"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 11-3 explains that AlphaEvolve is an evolutionary loop that selects from existing solutions, uses the LLM as a mutation operator to generate new variants, and then measures fitness with an external evaluation function."
+  },
+  {
+    "id": "q6",
+    "question": "What result did AlphaEvolve achieve on publicly available math problems?",
+    "options": [
+      "It improved the best-known solution for every problem",
+      "It improved the best-known solution in approximately 20% of runs",
+      "It fully automated math problem solving",
+      "It generally surpassed human mathematicians in performance"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 11-3 states that AlphaEvolve improved the best-known solution on publicly available math problems in approximately 20% of runs."
+  },
+  {
+    "id": "q7",
+    "question": "How did the Darwin Gödel Machine (DGM) improve SWE-bench performance from 20% to 50%?",
+    "options": [
+      "By switching to a larger base model",
+      "Through a self-modification loop in which the agent iteratively rewrites its own scaffold code and validates changes against an external benchmark",
+      "By adding more training data",
+      "By deploying more parallel agents"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 11-4 explains that DGM improved from 20% to 50% through a self-modification loop in which the agent iteratively rewrites its own scaffold code (ACI, context handling, error handling, task decomposition) and validates changes using SWE-bench."
+  },
+  {
+    "id": "q8",
+    "question": "What is the core safety mechanism in the DGM self-modification loop?",
+    "options": [
+      "A human supervisor reviews all modifications",
+      "After modification, performance is validated against an externally fixed benchmark, and only improvements are adopted",
+      "The number of modifications is pre-limited",
+      "Specific files or modules are prohibited from being modified"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 11-4 explains that DGM's safety mechanism is an external verifier pattern: each modified scaffold is validated against a fixed external benchmark (SWE-bench) and only variants with improved performance are adopted."
+  },
+  {
+    "id": "q9",
+    "question": "What is the key difference between GRPO (Group Relative Policy Optimization) and PPO?",
+    "options": [
+      "GRPO requires more GPU memory",
+      "GRPO computes advantage from the relative rewards of G samples for the same question, without a separate critic network",
+      "GRPO is not reinforcement learning",
+      "GRPO converges more slowly than PPO"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 11-5 explains that GRPO generates G samples for the same question and normalizes advantage using the relative reward differences within the group, without PPO's critic network."
+  },
+  {
+    "id": "q10",
+    "question": "Which of the following is NOT a behavior that spontaneously emerged in DeepSeek-R1-Zero through pure reinforcement learning?",
+    "options": [
+      "Spontaneous use of chain-of-thought",
+      "Backtracking after recognizing a wrong path",
+      "Self-correction utterances (\"Wait, this approach is wrong. Let me try again.\")",
+      "Automatic discovery and use of external tools"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 11-5 states that the behaviors DeepSeek-R1-Zero emerged through pure RL (GRPO) are CoT usage, backtracking, and self-correction utterances. Automatic external tool discovery is not among them."
+  },
+  {
+    "id": "q11",
+    "question": "What corresponds to the policy (π) when modeling an agentic loop as an MDP?",
+    "options": [
+      "Filesystem state",
+      "Tool execution results",
+      "LLM + system prompt + temperature and sampling settings",
+      "Reward function"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 11-1 explains that when representing an agentic loop as an MDP, the policy (π) corresponds to the entirety of LLM + system prompt + sampling settings — the combination that determines the next action given the current state (observation)."
+  },
+  {
+    "id": "q12",
+    "question": "When is DSPy NOT a good fit?",
+    "options": [
+      "When there are fixed inputs and outputs and sufficient evaluation data",
+      "For a complex multi-step pipeline where manual prompt optimization is difficult",
+      "When the task runs only once or no evaluation metric can be defined",
+      "In environments where the model changes frequently"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 11-2 explains that DSPy requires an evaluation metric and training examples for its compiler to function, so it is not suitable when the task runs only once or when an evaluation metric cannot be defined."
+  },
+  {
+    "id": "q13",
+    "question": "What constraint does the 'sparse reward' problem in reinforcement learning impose on agentic loop design?",
+    "options": [
+      "More tools are needed",
+      "Without feedback on intermediate steps, it is hard to know which actions were good, requiring the design of intermediate checkpoints or denser rewards",
+      "Sparser rewards make agents more creative",
+      "The agent is unable to explore the environment"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 11-1 explains that sparse rewards (only a success/failure signal at the end of the loop) make it impossible to know the contribution of intermediate actions, making learning difficult, and notes that intermediate checkpoints or denser intermediate reward design is needed."
+  }
+]

@@ -1,0 +1,158 @@
+---
+title: "Orchestrator-Workers: Dynamic Task Decomposition"
+description: Learn how an Orchestrator LLM dynamically breaks a task into subtasks at runtime, assigns them to Workers for parallel execution, and synthesizes the results.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Explain how Orchestrator-Workers differs from a fixed pipeline or simple parallelization"
+  - "Understand the four elements of a well-formed subtask specification and write one yourself"
+  - "Understand the synchronous bottleneck problem and how to manage subtask dependencies"
+prerequisites:
+  - "4-1-prompt-chaining"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — How we built our multi-agent research system"
+    url: "https://www.anthropic.com/engineering/multi-agent-research-system"
+    accessed: "2026-06-30"
+---
+
+## The Limit of Static Pipelines: Tasks You Cannot Anticipate
+
+Prompt Chaining uses fixed steps. Sectioning decides the split method in advance. But when asked to "thoroughly research this company," the exact subtasks needed are unknown until the research begins. The required set depends entirely on the company's size, industry, and how much public information is available.
+
+Orchestrator-Workers solves this problem. The **Orchestrator** receives a task and dynamically determines which subtasks are needed at runtime, then assigns them to Workers. Each **Worker** executes a single assigned subtask independently. The Orchestrator collects Worker results, decides whether additional subtasks are needed, and ultimately synthesizes the final answer.
+
+This is distinct from plain Parallelization (Sectioning). In Sectioning, all sections are known before execution begins. In Orchestrator-Workers, **subtasks are generated dynamically based on previous Worker results**.
+
+## Structure Diagram
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                  Orchestrator-Workers Structure                   │
+│                                                                  │
+│   Task Input                                                     │
+│        │                                                         │
+│        ▼                                                         │
+│  ┌──────────────────────────────────────┐                        │
+│  │          Orchestrator                │                        │
+│  │  "What subtasks are needed?"         │                        │
+│  │  Subtask A: collect financial data   │                        │
+│  │  Subtask B: competitor analysis      │                        │
+│  │  Subtask C: latest news gathering    │                        │
+│  └──────┬──────────────────────────────┘                        │
+│         │   assign                                               │
+│    ┌────┴────┬──────────┬──────────┐                            │
+│    ▼         ▼          ▼          ▼                            │
+│  [Worker A] [Worker B] [Worker C]  (more if needed)            │
+│  financials  competitors  news                                  │
+│    │         │          │                                        │
+│    └─────────┴──────────┘                                        │
+│                  │   results returned                            │
+│                  ▼                                               │
+│  ┌──────────────────────────────────────┐                        │
+│  │     Orchestrator (re-evaluates)      │                        │
+│  │  "Are more subtasks needed?"         │                        │
+│  │  → Yes: create Subtask D             │                        │
+│  │  → No:  synthesize final answer      │                        │
+│  └──────────────────────────────────────┘                        │
+│                  │                                               │
+│                  ▼                                               │
+│             Final Result                                         │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+## The Four Elements of a Subtask Specification
+
+When the Orchestrator hands off a subtask to a Worker, an incomplete specification causes the Worker to go in the wrong direction. Based on Anthropic's multi-agent research system, a good subtask specification has four elements:
+
+| Element | Description | Example |
+|---------|-------------|---------|
+| Goal | What must be achieved | "Collect annual revenue data for the last 3 years" |
+| Context | Where this subtask fits in the overall task | "Part of a financial analysis report for CEO presentation" |
+| Format | What form the result should be returned in | `{"year": ..., "revenue": ..., "growth_rate": ...}` |
+| Constraints | Scope, tool restrictions, trusted sources | "Official filings only; no estimates" |
+
+### Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+import asyncio
+from dataclasses import dataclass
+
+@dataclass
+class SubTask:
+    id: str
+    goal: str
+    context: str
+    output_format: str
+    constraints: str
+
+async def worker_execute(model, tools: dict, subtask: SubTask) -> dict:
+    """Worker: execute a single subtask and return the result."""
+    prompt = (
+        f"Goal: {subtask.goal}\n"
+        f"Context: {subtask.context}\n"
+        f"Output format: {subtask.output_format}\n"
+        f"Constraints: {subtask.constraints}\n"
+    )
+    result = await run_react_loop_async(model, tools, prompt)
+    return {"subtask_id": subtask.id, "result": result}
+
+
+async def orchestrator_workers(
+    model, tools: dict, task: str, max_rounds: int = 3
+) -> str:
+    """
+    Orchestrator dynamically creates, assigns, and synthesizes subtasks.
+    """
+    completed_results = []
+
+    for round_num in range(max_rounds):
+        # Orchestrator: decide next subtasks based on results so far
+        orch_prompt = (
+            f"Task: {task}\n\n"
+            f"Completed results:\n{format_results(completed_results)}\n\n"
+            "Generate the next subtasks as a JSON array. "
+            "Return an empty array [] if the task is complete."
+        )
+        orch_response = model.generate(
+            [{"role": "user", "content": orch_prompt}]
+        )
+        subtasks = parse_subtasks(orch_response.text)
+
+        if not subtasks:
+            break  # Orchestrator judges: task is complete
+
+        # Assign workers in parallel
+        round_results = await asyncio.gather(*[
+            worker_execute(model, tools, st) for st in subtasks
+        ])
+        completed_results.extend(round_results)
+
+    # Final synthesis
+    synthesis_prompt = (
+        f"Task: {task}\n\n"
+        f"All collected results:\n{format_results(completed_results)}\n\n"
+        "Write the final synthesized answer."
+    )
+    final = model.generate([{"role": "user", "content": synthesis_prompt}])
+    return final.text
+```
+
+## Synchronous Bottleneck and Cost Reality
+
+Orchestrator-Workers is powerful, but comes with two practical constraints.
+
+**Synchronous bottleneck**: The Orchestrator must wait for all Workers in a round before starting the next round. The slowest Worker blocks the entire round. Mitigate this by setting per-Worker timeouts and either dropping slow Workers or shunting them to a separate track.
+
+**Cost escalation**: The Orchestrator itself is an LLM call, and each Worker typically involves several LLM calls of its own. Total cost grows fast as rounds increase. Anthropic's multi-agent research system reportedly consumes approximately **15× the tokens of a single conversation**, while achieving **+90.2% performance** over a single Opus on internal evaluations. This pattern is worth those costs only for tasks that genuinely demand it.
+
+## When to Choose Orchestrator-Workers
+
+Use this pattern when the number and type of subtasks **cannot be known before execution starts**, and when **parallel execution is essential for throughput**. Conversely, when subtasks are clearly definable upfront, Sectioning is simpler and more predictable.
+
+The next chapter covers Evaluator-Optimizer, which complements this pattern from a quality perspective: a separate Evaluator LLM scores the generated output and provides feedback for iterative improvement.

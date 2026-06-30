@@ -1,0 +1,149 @@
+---
+title: "Case Study: Claude Code and Codex"
+description: Comparing Claude Code's single-threaded master loop against OpenAI Codex's plan-execute-verify-fix loop to extract principles for real-world loop design.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Explain Claude Code's single-threaded loop structure and its 92% compaction strategy"
+  - "Describe Codex's plan-execute-verify-fix loop and how RL-based training shapes its runtime behavior"
+  - "Extract common principles from both systems and apply them to your own loop designs"
+prerequisites:
+  - "2-5-minimal-agent-loop"
+estimated_minutes: 32
+references:
+  - title: "OpenAI — Unrolling the Codex agent loop"
+    url: "https://openai.com/index/unrolling-the-codex-agent-loop/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective context engineering for AI agents"
+    url: "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents"
+    accessed: "2026-06-30"
+  - title: "Addy Osmani — Loop Engineering"
+    url: "https://addyosmani.com/blog/loop-engineering/"
+    accessed: "2026-06-30"
+---
+
+## From Theory to Reality
+
+The preceding chapters covered loop structure, patterns, and failure modes at a conceptual level. Section 12 is about practice. We dissect how two coding agents used by millions of people every day — Anthropic's Claude Code and OpenAI's Codex — actually implement their loops. These two systems embody different design philosophies, yet each had to solve the same core problems.
+
+Recall Boris Cherny, the lead of Claude Code:
+
+> "I no longer prompt Claude. I run loops and let it figure out what to do. My job is to write the loop."
+
+That single sentence captures the philosophy of modern coding agents.
+
+## Claude Code: Single-Threaded Master Loop
+
+Claude Code is organized around a master loop running on a single main thread. When the user runs `claude` in the terminal, this loop starts.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                  Claude Code Master Loop                         │
+└─────────────────────────────────────────────────────────────────┘
+
+  User input
+      │
+      ▼
+  ┌──────────────────────────────┐
+  │  Build context               │
+  │  - System prompt             │
+  │  - Load CLAUDE.md files      │
+  │  - Conversation history      │
+  │  - Current tool list         │
+  └──────────────┬───────────────┘
+                 │
+                 ▼
+  ┌──────────────────────────────┐
+  │  Call Claude (Sonnet / Opus) │
+  └──────────────┬───────────────┘
+                 │
+         stop_reason?
+         ├── end_turn ──▶ output response to user, wait
+         │
+         └── tool_use ──▶ execute tool
+                              │
+                         ┌────┴────┐
+                         │bash  │read_file│write_file│···
+                         └────┬────┘
+                              │ tool_result
+                              │
+                         append to context window
+                              │
+                              ▼
+                    Context at 92% threshold?
+                    ├── No  ──▶ call Claude again
+                    └── Yes ──▶ run Compaction
+                                  (compressed summary + retain key files
+                                   + reset context, then continue)
+```
+
+### File-Based Memory
+
+Claude Code uses the `CLAUDE.md` file system as long-term memory. The project-root `CLAUDE.md` stores project rules, frequently used commands, and code conventions. This file is **injected into the context at the start of every loop iteration**, which is why important context survives even when the loop restarts.
+
+### 92% Compaction: Managing Context Lifespan
+
+The longer a loop runs, the more the context window fills up. When the context reaches roughly 92% capacity, Claude Code runs compaction: it summarizes the current conversation, preserves the content of recently modified files, resets the context, and continues the loop. This is the real-world implementation of the compaction strategy discussed in Section 5-3.
+
+### Sub-Agents and Depth Cap
+
+For complex tasks, Claude Code can spawn sub-agents. However, a **depth cap** prevents the agent tree from growing indefinitely deep. Each sub-agent has an independent context and returns only its result to the parent — context isolation prevents error propagation.
+
+## OpenAI Codex: Plan-Execute-Verify-Fix
+
+OpenAI Codex is a coding agent that runs in a cloud container and follows an explicit four-phase loop.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    Codex Loop Structure                          │
+└─────────────────────────────────────────────────────────────────┘
+
+  User task
+      │
+      ▼
+  ① PLAN
+  Understand repository structure and problem
+  Build a step-by-step execution plan
+      │
+      ▼
+  ② EXECUTE
+  Read files, modify code, run commands
+  Each step runs in an isolated container
+      │
+      ▼
+  ③ VERIFY
+  Run tests on modified code
+  Lint, type-check, build
+      │
+      ▼
+  ④ FIX (if needed)
+  Verification fails → analyze errors
+  Modify code → return to VERIFY
+      │
+      ▼
+  All checks pass → create and submit PR
+```
+
+### RL-Based Training: "Keep Iterating Until Tests Pass"
+
+One distinguishing aspect of Codex is that the model (codex-1) itself was trained with **reinforcement learning to internalize the coding loop behavior**. It did not just learn to generate code; it learned the full cycle of running tests, reading failures, modifying code, and running again — all as a reward signal. This is the training loop from Section 11-5 internalized into the inference loop.
+
+### Cloud Container Isolation
+
+Each Codex session runs in an independent cloud container, applying the sandboxing principles of Section 7-5 rigorously. Whatever commands the agent runs cannot affect other sessions or the real system. The blast radius is contained within the container boundary.
+
+## Common Principles Across Both Systems
+
+Despite very different design philosophies, both systems repeat the same patterns.
+
+| Principle | Claude Code | Codex |
+|---|---|---|
+| Clear termination condition | `stop_reason` end_turn | All tests pass |
+| Context management | 92% compaction | Clean context per phase |
+| Isolation | Sub-agent isolation | Container isolation |
+| Verification integrated | Observe tool execution results | Explicit VERIFY phase |
+| File-based state | CLAUDE.md | Container filesystem |
+
+Every concrete implementation differs, but the fundamental principles are the same. **Keep the loop simple. Make termination conditions explicit. Store state externally. Embed verification inside the loop.**
+
+The next chapter uses SWE-agent as a case study to examine how ACI (Agent-Computer Interface) design makes a measurable difference to loop efficiency.

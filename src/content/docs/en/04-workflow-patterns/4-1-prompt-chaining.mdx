@@ -1,0 +1,158 @@
+---
+title: "Prompt Chaining: Sequential Pipelines"
+description: Explore the Prompt Chaining pattern, where multiple LLM calls are connected in sequence so that each step's output becomes the next step's input, along with its core design principles.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Explain the structural advantages of Prompt Chaining over a single monolithic prompt"
+  - "Understand the need for Gate (validation checkpoint) design and where to place gates"
+  - "Apply design strategies that mitigate the error propagation problem"
+prerequisites:
+  - "1-3-workflow-vs-agent"
+estimated_minutes: 26
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+---
+
+## Decomposing Complex Tasks into Steps
+
+What happens when you try to process "translate a long English article into Korean, extract the five key points, and convert them into a short social-media post" in a single prompt? The model attempts all three simultaneously, and the quality of each suffers. On top of that, when something goes wrong it is hard to tell which step caused the problem.
+
+Prompt Chaining solves this through decomposition. **Each LLM call performs exactly one well-defined transformation**, and its output becomes the input to the next call. Presented by Anthropic's "Building Effective AI Agents" as the starting point for workflow patterns, this is the simplest yet most practical multi-step LLM architecture available.
+
+## Pipeline Structure
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                  Prompt Chaining Pipeline                        │
+│                                                                  │
+│  Raw Input                                                       │
+│     │                                                            │
+│     ▼                                                            │
+│  ┌──────────┐                                                    │
+│  │ LLM Call │  "Translate the English article into Korean."      │
+│  │ (translate)│                                                  │
+│  └────┬─────┘                                                    │
+│       │   Output: Korean translation                             │
+│       ▼                                                          │
+│  Gate: Is the output language Korean? (fail → abort)            │
+│       ▼                                                          │
+│  ┌──────────┐                                                    │
+│  │ LLM Call │  "Extract the five key points as bullet points."  │
+│  │ (summarize)│                                                  │
+│  └────┬─────┘                                                    │
+│       │   Output: 5 bullet points                                │
+│       ▼                                                          │
+│  Gate: Are there exactly 5 bullets? (fail → retry)              │
+│       ▼                                                          │
+│  ┌──────────┐                                                    │
+│  │ LLM Call │  "Convert into a 280-character social-media post." │
+│  │ (convert)│                                                    │
+│  └────┬─────┘                                                    │
+│       │   Output: Post                                           │
+│       ▼                                                          │
+│   Final Result                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+The **Gate** between each step is the quality-control mechanism of this pattern. A gate is a programmatic or LLM-based checkpoint that verifies whether the previous step's output is a suitable input for the next step.
+
+## Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+from dataclasses import dataclass
+from typing import Callable
+
+@dataclass
+class Step:
+    name: str
+    prompt_template: str           # contains {input} placeholder
+    gate: Callable[[str], bool] | None = None
+    gate_error_msg: str = ""
+
+def prompt_chain(model, steps: list[Step], initial_input: str) -> str:
+    """
+    Execute a sequential pipeline. Validate each step's output with its gate.
+    """
+    current = initial_input
+
+    for step in steps:
+        prompt = step.prompt_template.format(input=current)
+        result = model.generate([{"role": "user", "content": prompt}]).text
+
+        # Gate validation
+        if step.gate is not None and not step.gate(result):
+            raise ValueError(
+                f"[{step.name}] Gate failed: {step.gate_error_msg}\n"
+                f"Output excerpt: {result[:200]}"
+            )
+
+        current = result  # pass to next step
+
+    return current
+
+
+# Usage example
+def is_korean(text: str) -> bool:
+    """Check whether the text contains Korean characters."""
+    return any("가" <= c <= "힣" for c in text)
+
+def has_five_bullets(text: str) -> bool:
+    """Check whether the text has at least 5 bullet points."""
+    return text.count("•") >= 5 or text.count("-") >= 5
+
+pipeline = [
+    Step(
+        name="translate",
+        prompt_template="Translate the following English text into Korean:\n\n{input}",
+        gate=is_korean,
+        gate_error_msg="Translation contains no Korean characters.",
+    ),
+    Step(
+        name="summarize",
+        prompt_template="Extract the five key points as '• ' bullets:\n\n{input}",
+        gate=has_five_bullets,
+        gate_error_msg="Fewer than 5 bullet points found.",
+    ),
+    Step(
+        name="convert",
+        prompt_template="Convert these points into a social-media post of 280 chars or fewer:\n\n{input}",
+        gate=lambda t: len(t) <= 280,
+        gate_error_msg="Post exceeds 280 characters.",
+    ),
+]
+
+result = prompt_chain(model, pipeline, initial_input=english_article)
+```
+
+## Error Propagation: The First Step Determines Everything
+
+The most important weakness of Prompt Chaining is **error propagation**. If Step 1's translation mishandles a technical term, Step 2's summarizer receives corrupted input, and Step 3's post is built on a flawed summary. **An early error contaminates every downstream step**, and tracing the root cause from the final output is difficult.
+
+Three design strategies mitigate this:
+
+**Place gates early**: The sooner an error is caught, the better. Put stricter gates at the front of the pipeline and abort immediately on failure. Catching problems upstream is far cheaper than discovering them at the end.
+
+**Log each step's I/O**: Record the input and output of every step. When the final output degrades, you need to pinpoint exactly which step lost quality.
+
+**Cache intermediate results**: Storing each step's output enables partial retries. If Step 4 fails in a five-step pipeline, you do not need to re-run Steps 1–3.
+
+## When Prompt Chaining Fits
+
+| Characteristic | Suitability |
+|----------------|-------------|
+| Steps are clearly separated and order is fixed | Excellent fit |
+| Human review of intermediate results is needed | Excellent fit |
+| Few steps (3–7) | Good fit |
+| Each step's quality is automatically verifiable | Required |
+| Step order varies by task | Poor fit → consider Routing |
+| Steps are mutually independent | Poor fit → consider Parallelization |
+
+The next chapter covers Routing, which extends the "fixed single path" of Prompt Chaining into **branching**. A classifier analyzes the input and routes it to the most appropriate specialized pipeline.

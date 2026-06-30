@@ -1,0 +1,162 @@
+---
+title: "ReAct: Where Reasoning Meets Action"
+description: Explore the structure, strengths, and limitations of the ReAct pattern, which interleaves Thought, Action, and Observation in a loop to interact with external tools.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Describe the Thought → Action → Observation cycle of the ReAct loop"
+  - "Cite the performance gains ReAct achieved on ALFWorld and WebShop benchmarks"
+  - "Understand the two core weaknesses: linear context growth and cascading errors"
+prerequisites:
+  - "2-5-minimal-agent-loop"
+estimated_minutes: 30
+references:
+  - title: "Yao et al. — ReAct: Synergizing Reasoning and Acting in Language Models (arXiv:2210.03629)"
+    url: "https://arxiv.org/abs/2210.03629"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Lilian Weng — LLM Powered Autonomous Agents"
+    url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
+    accessed: "2026-06-30"
+---
+
+## Why Interleave Reasoning and Action?
+
+An LLM that reasons in isolation accumulates hallucinations. One that only executes actions ends up clicking without context. ReAct (Reason + Act) is designed to interleave the two **within a single loop**, letting each discipline correct the other. Published by Yao et al. at ICLR 2023, this idea has since become the foundational vocabulary for virtually every agentic framework that followed.
+
+The core intuition is straightforward. The model outputs its current thinking as text (Thought), calls a tool based on that thinking (Action), reads what the tool returns (Observation), and then enters the next Thought. This cycle repeats until the model declares completion (`end_turn`).
+
+## The Thought → Action → Observation Cycle
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│               One Iteration of the ReAct Loop               │
+├──────────────┬──────────────────────────────────────────────┤
+│   Thought    │  "I need to check the current temp in Paris."│
+├──────────────┼──────────────────────────────────────────────┤
+│   Action     │  search("current weather in Paris")          │
+├──────────────┼──────────────────────────────────────────────┤
+│ Observation  │  "Paris current temp: 18°C, clear sky"       │
+├──────────────┼──────────────────────────────────────────────┤
+│   Thought    │  "Got the temp. Now I also need feels-like." │
+├──────────────┼──────────────────────────────────────────────┤
+│   Action     │  search("Paris feels-like temperature today")│
+├──────────────┼──────────────────────────────────────────────┤
+│ Observation  │  "Feels-like: 15°C"                          │
+├──────────────┼──────────────────────────────────────────────┤
+│   Thought    │  "I have enough info. I can answer now."     │
+├──────────────┼──────────────────────────────────────────────┤
+│  Final Ans   │  "Paris is 18°C, feels like 15°C."           │
+└──────────────┴──────────────────────────────────────────────┘
+```
+
+Thought does not call any tool. It is the model's **verbal working memory** — a space to decide the next action, interpret what a previous observation means, and adjust strategy. As a side benefit, this visible reasoning trace makes debugging straightforward.
+
+## Implementing the ReAct Loop in Python
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+import json
+
+def react_loop(model, tools: dict, task: str, max_steps: int = 10) -> str:
+    """
+    ReAct loop: repeats Thought-Action-Observation.
+    tools: dictionary of {"tool_name": callable}
+    """
+    messages = [{"role": "user", "content": task}]
+    tool_schemas = [
+        {"name": name, "description": fn.__doc__, "parameters": {}}
+        for name, fn in tools.items()
+    ]
+
+    for step in range(max_steps):
+        response = model.generate(messages, tools=tool_schemas)
+
+        # Model declares completion — return the final text
+        if response.stop_reason == "end_turn":
+            return response.text
+
+        # Execute tool calls in order and collect observations
+        tool_calls = response.tool_calls
+        messages.append({"role": "assistant", "content": response.content})
+
+        for call in tool_calls:
+            fn = tools.get(call.name)
+            if fn is None:
+                observation = f"ERROR: unknown tool '{call.name}'"
+            else:
+                try:
+                    observation = fn(**call.arguments)
+                except Exception as e:
+                    observation = f"ERROR: {e}"
+
+            messages.append({
+                "role": "tool",
+                "tool_use_id": call.id,
+                "content": str(observation),
+            })
+
+    return "Maximum steps exceeded."
+
+
+# Example tools
+def search(query: str) -> str:
+    """Search the web for information."""
+    # In a real implementation, call a search API
+    return f"Search results for '{query}'..."
+
+def calculator(expression: str) -> str:
+    """Evaluate a mathematical expression."""
+    return str(eval(expression))  # Use a safe parser in production
+```
+
+## Performance: ALFWorld and WebShop Benchmarks
+
+The ReAct paper demonstrated its strengths on two multi-step task benchmarks.
+
+| Benchmark | Baseline | ReAct Gain |
+|-----------|----------|-----------|
+| ALFWorld (household task agent) | RL baseline | **+34% absolute** |
+| WebShop (e-commerce navigation) | Action-only baseline | **+10% absolute** |
+
+The +34% on ALFWorld is particularly striking. That benchmark requires executing multi-step instructions such as "place the book on the desk into the bookshelf" inside a text-based virtual environment. The results show that interleaving reasoning and action is far more robust than cycling through actions without any Thought.
+
+## Two Core Weaknesses of ReAct
+
+### 1. Linear Context Growth
+
+Every ReAct iteration **appends** a Thought, an Action, and an Observation to the context. A 10-step loop can consume ten times the initial context budget. Because LLM self-attention is O(n²) in complexity, latency and cost grow sharply as context lengthens. More critically, older observations can suffer from the "lost in the middle" phenomenon — they receive diminishing attention as they move further from the beginning or end of the context.
+
+### 2. Cascading Errors
+
+If the first Action calls the wrong tool or sends a malformed query, that flawed Observation corrupts the next Thought, and the corrupted Thought spoils the next Action. **Errors compound through the loop like compound interest.** ReAct has no built-in mechanism to detect or recover from this cascading effect — which is exactly why the next chapter introduces the Reflexion pattern.
+
+```text
+┌───────────────────────────────────────────────────────────┐
+│              ReAct: Strengths and Weaknesses              │
+├────────────────────┬──────────────────────────────────────┤
+│     Strengths      │          Weaknesses                  │
+├────────────────────┼──────────────────────────────────────┤
+│ Visible reasoning  │ Unbounded linear context growth      │
+│ Natural tool use   │ No automatic cascading-error recovery│
+│ Simple to implement│ Cache hit rate drops (variable Thoughts)│
+│ General purpose    │ Step count is non-deterministic      │
+└────────────────────┴──────────────────────────────────────┘
+```
+
+## Design Decisions When Using ReAct
+
+**Enforce a `max_steps` guard**: Always hard-code a maximum iteration count. Thoughts can loop, and the model may never declare `end_turn` on its own.
+
+**Scope Thought length**: A system-prompt instruction such as "keep your Thought to one or two concise sentences" slows context bloat meaningfully.
+
+**Summarize tool output**: Avoid dropping a full web-search result page verbatim into context. A lightweight summarization call or simple parsing step compresses the observation and directly mitigates the linear-growth weakness.
+
+**Write actionable error messages**: If a tool returns only "ERROR", the model has nothing to act on. Design error messages that include a corrective direction — for example, "Query format is invalid: do not include spaces."
+
+## ReAct's Lasting Influence on Modern Agent Frameworks
+
+ReAct is more than a single paper. It established a shared vocabulary that all subsequent agentic loop patterns build on. LangChain's `AgentExecutor`, LangGraph's node-edge graphs, the OpenAI Agents SDK loop, and Anthropic's tool-use documentation all stand on the Thought-Action-Observation skeleton. The Reflexion pattern covered in the next chapter "adds an outer trial loop to solve ReAct's inability to recover from errors." Plan-and-Execute "splits the Thought phase into a dedicated Planner model." Understanding ReAct is the prerequisite for understanding every one of these variations.

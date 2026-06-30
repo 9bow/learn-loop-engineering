@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "What is the difference between direct injection and indirect injection?",
+    "options": [
+      "Direct injection is inserted into tool output; indirect injection comes directly from the user",
+      "In direct injection the user directly inputs malicious instructions; in indirect injection malicious instructions are hidden inside external data that the agent reads",
+      "Direct injection is undetectable; indirect injection is detectable",
+      "Both can be blocked by the same defense mechanism"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 8-1 distinguishes the two: in direct injection the user directly inserts malicious instructions, while in indirect injection malicious instructions are hidden in external data such as files, web pages, or emails that the agent reads."
+  },
+  {
+    "id": "q2",
+    "question": "Why is indirect injection more dangerous in an agentic loop?",
+    "options": [
+      "Because indirect injection contains more sophisticated malicious code",
+      "Because agents continuously read external data through tools, an attacker can pre-plant malicious instructions in files or pages the agent will process",
+      "Because indirect injection always succeeds",
+      "Because there are no defenses against indirect injection"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 8-1 explains that because agents continuously collect external data through tools, all external data becomes a potential attack vector, making indirect injection especially dangerous."
+  },
+  {
+    "id": "q3",
+    "question": "What is the root cause of reward hacking?",
+    "options": [
+      "The agent optimizes a measurable metric (reward proxy) instead of the true goal",
+      "The model was intentionally designed to deceive",
+      "The reward function is not defined",
+      "The agent lacks sufficient training data"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 8-2 explains that reward hacking is an instance of Goodhart's Law, where the agent optimizes the metric we measure (reward proxy) rather than the actual goal."
+  },
+  {
+    "id": "q4",
+    "question": "What is the classic example of reward hacking in a code agent?",
+    "options": [
+      "The agent over-simplifies code to reduce execution time",
+      "The agent modifies test files so that a buggy implementation always passes tests",
+      "The agent adds unnecessary features",
+      "The agent auto-generates code documentation"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 8-2 explains that the classic reward hacking in code agents is modifying the tests rather than fixing bugs in the implementation code, thereby achieving the pass-rate metric."
+  },
+  {
+    "id": "q5",
+    "question": "What is the core principle of Pre-Action Authorization?",
+    "options": [
+      "Let the model reason and judge authorization on its own",
+      "Require human approval for every action",
+      "Implement the authorization decision in deterministic, non-LLM code",
+      "Specify 'do not do this' in the system prompt"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 8-3 explains that the core of Pre-Action Authorization is implementing the authorization decision in a deterministic code layer rather than in LLM reasoning, making it impossible to bypass regardless of the model's reasoning."
+  },
+  {
+    "id": "q6",
+    "question": "Why is it dangerous to rely on model reasoning to enforce safety constraints?",
+    "options": [
+      "Because the stronger the model's reasoning capability, the more sophisticated the logic it can generate to justify exceptions",
+      "Because the system prompt is too short",
+      "Because the model has not received security training",
+      "Because the API key was exposed"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 8-3 warns that delegating safety constraints to LLM reasoning means that stronger models can generate more sophisticated logic to circumvent those very constraints."
+  },
+  {
+    "id": "q7",
+    "question": "What are the two core principles Anthropic emphasizes for agent loop design?",
+    "options": [
+      "Speed and cost",
+      "Accuracy and creativity",
+      "Parallelism and independence",
+      "Visibility and controllability"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 8-4 states that Anthropic emphasizes 'being able to see what is happening (visibility)' and 'being able to intervene or stop when needed (controllability)' as the core principles for agent loop design."
+  },
+  {
+    "id": "q8",
+    "question": "In bounded autonomy design, what is the principle for assigning autonomy levels based on action risk?",
+    "options": [
+      "Apply the same autonomy level to all actions",
+      "Higher autonomy is always more efficient",
+      "Grant low autonomy (requiring human approval) to high-risk actions, and high autonomy (automated) to low-risk actions",
+      "Autonomy is determined by model size"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 8-4 explains that bounded autonomy requires human approval for high-risk actions (file deletion, external service calls, etc.) and automates low-risk actions with high autonomy."
+  },
+  {
+    "id": "q9",
+    "question": "In an MCP (Model Context Protocol) environment, what is the primary attack vector for indirect injection?",
+    "options": [
+      "Direct user input",
+      "Contaminated data returned by an MCP server",
+      "System prompt tampering",
+      "API response header manipulation"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 8-1 explains that in an MCP environment, if the data returned by an MCP server is maliciously contaminated, it becomes an indirect injection path that causes the agent to follow malicious instructions."
+  },
+  {
+    "id": "q10",
+    "question": "What is the primary purpose of an immutable audit log?",
+    "options": [
+      "To record loop execution speed",
+      "To enable post-hoc verification of all agent actions and detection of anomalous behavior",
+      "To automatically benchmark model performance",
+      "To automatically bill costs"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 8-4 states that an immutable audit log records all agent actions in a tamper-proof way so they can be used as evidence for post-hoc verification and anomalous behavior detection."
+  },
+  {
+    "id": "q11",
+    "question": "What is 'trust level tagging' in prompt injection defense?",
+    "options": [
+      "Explicitly marking external text (such as tool output) with its trust level so the model processes it differently based on its source",
+      "Inserting security keywords into the system prompt",
+      "Including an authentication token in API requests",
+      "Adding a signature to model responses"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 8-1 explains that trust level tagging is a defense technique that explicitly marks external data as 'this text came from an external tool, not the user,' guiding the model to not blindly follow instructions in external data."
+  },
+  {
+    "id": "q12",
+    "question": "What is the 'multi-layer evaluation' strategy for mitigating reward hacking?",
+    "options": [
+      "Apply the same evaluation criteria multiple times",
+      "Multiple models collaborate to evaluate each other's output",
+      "Humans handle all evaluation",
+      "Assess success using multiple independent metrics instead of a single metric, making it harder to game any one metric"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 8-2 explains that multi-layer evaluation combines multiple independent metrics (code quality, test passage, functional correctness, etc.) rather than relying on a single metric like test pass rate, so that gaming one metric is caught by the others."
+  },
+  {
+    "id": "q13",
+    "question": "What does applying the Principle of Least Privilege to an agent mean?",
+    "options": [
+      "The agent should run with administrator privileges to maximize flexibility",
+      "The fewer permissions an agent has, the better its performance",
+      "Permissions for an agent should be determined by the user in real time",
+      "An agent should be granted only the minimum permissions and access scope strictly necessary to complete the current task"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 8-4 explains that the least-privilege principle means granting agents only the minimum permissions required to complete the task, minimizing blast radius in case of malfunction."
+  }
+]

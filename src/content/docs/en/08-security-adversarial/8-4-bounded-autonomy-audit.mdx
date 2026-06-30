@@ -1,0 +1,229 @@
+---
+title: "Bounded Autonomy and Audit Logging"
+description: Confining an agent's autonomy within explicit design-time boundaries, recording every action in an immutable audit log, and building a full security architecture that integrates visibility, control, and uncertainty surfacing.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Explain bounded autonomy design principles and the autonomy spectrum from a security perspective"
+  - "Design a security architecture combining least privilege, short-lived tokens, and immutable audit logs"
+  - "Understand why uncertainty surfacing contributes to safe agent design"
+prerequisites:
+  - "8-1-prompt-injection"
+estimated_minutes: 34
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "OpenTelemetry — AI Agent Observability"
+    url: "https://opentelemetry.io/blog/2025/ai-agent-observability/"
+    accessed: "2026-06-30"
+---
+
+## Autonomy Is a Design Decision
+
+Giving an agent autonomy means granting action rights to an entity with considerable capability. Greater autonomy lets the agent handle more work independently. But unlimited autonomy means that the agent's mistakes and malfunctions propagate without control.
+
+**Bounded autonomy** treats this tradeoff as an explicit design decision rather than an afterthought. Instead of restricting what the agent can do after the fact, define the boundaries of its autonomy at system design time and enforce them in code.
+
+Anthropic emphasizes **visibility** and **controllability** as core principles for agent loop design: you must always be able to see what the agent is doing, and you must always be able to stop it.
+
+## The Autonomy Spectrum (Security Perspective)
+
+The autonomy spectrum from chapter 6-5 looks different when viewed through a security lens:
+
+```text
+Autonomy Spectrum (Security Risk View)
+
+  Low autonomy                                      High autonomy
+  ─────────────────────────────────────────────▶
+
+  Every step    Key steps    Milestones    Fully
+  approved      approved     approved      automatic
+
+  Security risk: Low ◀───────────────────────────▶ High
+  Efficiency:    Low ◀───────────────────────────▶ High
+
+  Optimal point: depends on task type and risk level
+                 High-risk actions  → low autonomy
+                 Low-risk actions   → high autonomy
+```
+
+The key insight of bounded autonomy is not to apply one fixed autonomy level to everything, but to **dynamically determine autonomy based on the risk and reversibility of each action**.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+from enum import Enum
+
+class AutonomyLevel(Enum):
+    FULL_AUTO = "full_auto"          # execute automatically
+    NOTIFY_ONLY = "notify_only"      # execute, then notify
+    REQUIRE_APPROVAL = "approval"    # require approval before execution
+    BLOCKED = "blocked"              # always blocked
+
+def get_autonomy_level(tool_name: str, arguments: dict, environment: str) -> AutonomyLevel:
+    """Determine autonomy level based on action risk."""
+
+    # Read-only actions — fully automatic
+    if tool_name in {"read_file", "search_web", "get_status"}:
+        return AutonomyLevel.FULL_AUTO
+
+    # Write actions — depends on environment
+    if tool_name == "write_file":
+        if environment == "sandbox":
+            return AutonomyLevel.FULL_AUTO
+        elif environment == "staging":
+            return AutonomyLevel.NOTIFY_ONLY
+        else:  # production
+            return AutonomyLevel.REQUIRE_APPROVAL
+
+    # Deletions / sends / financial transactions — always require approval
+    if tool_name in {"delete_file", "send_email", "process_payment"}:
+        return AutonomyLevel.REQUIRE_APPROVAL
+
+    # Any tool not in policy — blocked
+    return AutonomyLevel.BLOCKED
+```
+
+## Least Privilege and Short-Lived Tokens
+
+Two technical mechanisms enforce bounded autonomy: **least privilege** and **short-lived tokens**.
+
+Least privilege was covered in chapters 7-5 and 8-3: grant the agent only the permissions required for the current task. Short-lived tokens extend this to the time dimension. If credentials acquired by the agent expire quickly, the window of use for any stolen credential is bounded.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│              Least Privilege + Short-Lived Token Flow         │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Agent starts                                                │
+│      │                                                       │
+│      ▼                                                       │
+│  Identify minimum permissions needed for the current task    │
+│      │                                                       │
+│      ▼                                                       │
+│  Issue short-lived token (e.g. valid for 1 hour)             │
+│      │                                                       │
+│      ▼                                                       │
+│  Execute task (before expiry)                                │
+│      │                                                       │
+│      ▼                                                       │
+│  Token expires → reissuance requires re-authorization        │
+│                                                              │
+│  Benefit: token theft yields only limited-time access        │
+│           permissions automatically expire after task ends   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Immutable Audit Log
+
+The indispensable component of any bounded-autonomy system is an **immutable audit log**: every action the agent takes, every decision it makes, and every error it encounters is recorded in a form that cannot be altered.
+
+"Immutable" is the operative word. If the agent can modify or delete log entries, the log is untrustworthy when something goes wrong. Ideally, the log path is entirely excluded from the agent's write permissions.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+import json
+import hashlib
+from datetime import datetime, timezone
+
+class ImmutableAuditLog:
+    """
+    Writes to a separate service the agent cannot access.
+    Each entry includes a hash of the previous entry (chain structure).
+    """
+
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.prev_hash = "genesis"
+
+    def record(self, event_type: str, payload: dict) -> None:
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": self.session_id,
+            "event_type": event_type,
+            "payload": payload,
+            "prev_hash": self.prev_hash,  # chain integrity
+        }
+        entry_json = json.dumps(entry, sort_keys=True)
+        entry_hash = hashlib.sha256(entry_json.encode()).hexdigest()
+
+        # Send to a service the agent cannot reach
+        write_to_external_log_service(entry_json, entry_hash)
+        self.prev_hash = entry_hash
+
+# Event types to record
+AUDIT_EVENTS = [
+    "tool_call_requested",       # model requested a tool call
+    "authorization_decision",    # allow / deny decision made
+    "tool_call_executed",        # tool ran to completion
+    "tool_call_failed",          # tool execution failed
+    "human_approval_requested",  # human approval was requested
+    "human_approval_response",   # human approved or rejected
+    "loop_completed",            # loop terminated normally
+    "loop_aborted",              # loop terminated abnormally
+]
+```
+
+The chain structure — each entry includes the hash of the previous entry — makes tampering detectable. Modifying any entry in the middle invalidates every hash after it.
+
+## Uncertainty Surfacing
+
+The final element of bounded autonomy is **uncertainty surfacing**: designing the agent to surface rather than suppress its uncertainty.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+
+UNCERTAINTY_PROMPT = """
+In the following situations, always express your uncertainty explicitly:
+- When you are unsure of an action's consequences: "I am not certain. Should I proceed?"
+- When two interpretations are possible: "I interpreted this as A. Is that correct?"
+- Before any high-risk action: "This action cannot be undone. Shall I continue?"
+- When a previous approach has failed: "There is a chance this approach will also fail."
+
+Acting with confidence is not always the right choice.
+Pausing in an uncertain situation is better than proceeding with false confidence.
+"""
+```
+
+Uncertainty surfacing is the mechanism by which the agent reduces its own autonomy level dynamically. Certain tasks proceed automatically; uncertain ones are brought to the human. This is "smart" autonomy.
+
+## Integrated Security Architecture
+
+Pulling together the elements from this chapter and section 08 as a whole yields a unified security architecture:
+
+```text
+Bounded Autonomy + Audit Logging — Integrated Architecture
+
+  User request
+      │
+      ▼
+  Agent loop
+      │ tool call decision
+      ▼
+  [Authorization layer]   ← ch. 8-3: deterministic authorization
+      │ if allowed
+      ▼
+  [Sandbox execution]     ← ch. 7-5: isolation + timeouts
+      │ result
+      ▼
+  [Trust-level tagging]   ← ch. 8-1: prevent output contamination
+      │ add to context
+      ▼
+  [Audit log record]      ← this chapter: every step logged
+      │
+      ▼
+  Return result
+```
+
+Each layer functions independently while reinforcing the others. If one layer fails, the remaining layers limit the damage. This is the essence of defense in depth.
+
+Building a trustworthy agentic loop is not purely a matter of model capability. It is an **engineering design problem**: guaranteeing visibility into what the agent does, enforcing boundaries on its actions, and recording every decision in a form that can be audited after the fact.
+
+---
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="08-security-adversarial" lang="en" client:load />

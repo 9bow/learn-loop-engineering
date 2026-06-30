@@ -1,0 +1,135 @@
+---
+title: "모델 라우팅: 내부 루프 비용 절감"
+description: 작업 복잡도에 따라 저렴한 모델과 프런티어 모델을 선택하는 모델 라우팅 전략으로 에이전트 루프의 비용을 줄이는 방법을 배웁니다.
+sidebar:
+  order: 6
+learning_objectives:
+  - "에이전트 루프 내 작업 유형별로 적합한 모델 계층을 구분할 수 있다"
+  - "RouteLLM의 라우팅 접근법과 비용-성능 트레이드오프를 설명할 수 있다"
+  - "내부 루프와 오케스트레이션 레이어에서 모델을 다르게 선택하는 패턴을 구현할 수 있다"
+prerequisites:
+  - "9-4-loop-economics"
+estimated_minutes: 30
+references:
+  - title: "LMSYS — RouteLLM: Learning to Route LLMs with Preference Data"
+    url: "https://lmsys.org/blog/2024-07-01-routellm/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## 모든 스텝에 동일한 모델을 쓸 필요가 없다
+
+에이전트 루프에는 다양한 수준의 작업이 섞여 있다. 다음 행동을 결정하기 위한 심층 추론, 도구 호출 파라미터 추출, 단순 텍스트 파싱, 도구 결과 요약 — 이 모든 작업을 가장 비싸고 가장 강력한 프런티어 모델에 맡기는 것은 낭비다.
+
+**모델 라우팅(model routing)**은 각 작업의 복잡도에 맞는 모델을 선택해 비용을 줄이면서 전체 성능을 유지하는 전략이다. Anthropic은 에이전트 시스템에서 작업 복잡도에 따른 모델 선택을 명시적으로 권장한다.
+
+## 에이전트 루프의 모델 계층
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                 에이전트 루프의 모델 계층 구조                     │
+├───────────────────────┬─────────────────────────────────────────┤
+│  계층                 │  적합한 작업                             │
+├───────────────────────┼─────────────────────────────────────────┤
+│  프런티어 (Opus 계열) │  작업 분해, 복잡 추론, 오케스트레이션 결정  │
+│                       │  모호한 지시 해석, 품질 판단              │
+├───────────────────────┼─────────────────────────────────────────┤
+│  중간 (Sonnet 계열)   │  코드 생성, 도구 호출 시퀀스 계획          │
+│                       │  구조화 출력 생성, 다단계 추론            │
+├───────────────────────┼─────────────────────────────────────────┤
+│  경량 (Haiku 계열)    │  도구 파라미터 추출, 텍스트 파싱           │
+│                       │  결과 요약, 단순 분류, 포맷 변환          │
+└───────────────────────┴─────────────────────────────────────────┘
+```
+
+오케스트레이터 패턴에서 이 계층은 명확하게 분리된다. **오케스트레이터(orchestrator)**는 전체 작업 계획을 세우고 서브태스크를 분배하므로 프런티어 모델이 적합하다. **워커(worker)**는 분배받은 구체적인 서브태스크를 수행하므로 중간 모델을 쓸 수 있다. **내부 루프(inner loop)** — 도구 결과 파싱, 단순 포맷 변환 등 — 은 경량 모델이 충분히 처리한다.
+
+## RouteLLM: 데이터 기반 라우팅
+
+**RouteLLM**은 LMSYS 연구팀이 개발한 LLM 라우팅 시스템으로, 쿼리별로 강력한 모델과 약한 모델 중 어느 것으로 라우팅할지를 학습된 라우터가 결정한다. 핵심 결과는 다음과 같다. GPT-4 수준의 성능을 95% 유지하면서 일부 쿼리만 강력한 모델로 보내는 방식으로 전체 비용을 크게 줄일 수 있었다.
+
+RouteLLM 접근법의 핵심은 **라우터 자체가 경량 분류기**라는 점이다. 쿼리를 보고 "이 쿼리는 강력한 모델이 필요한가, 약한 모델로 충분한가"를 판단하는 작은 모델이나 규칙 기반 시스템이다. 잘못 라우팅해도 폴백(fallback)할 수 있으므로, 라우터 자체의 실수는 허용된다.
+
+에이전트 루프에서 이 아이디어를 적용하면, 각 이터레이션에서 라우터가 "이 단계는 경량 모델로 처리 가능한가"를 판단해 비용을 줄인다.
+
+## 실용적 라우팅 구현
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+from enum import Enum
+
+class ModelTier(Enum):
+    FRONTIER = "claude-opus-4-5"
+    MID = "claude-sonnet-4-5"
+    LIGHT = "claude-haiku-4-5"
+
+def route_iteration(
+    messages: list[dict],
+    iteration: int,
+    tools_in_flight: bool,
+) -> ModelTier:
+    """
+    이터레이션의 성격을 보고 적합한 모델 계층을 선택한다.
+    - 첫 이터레이션(작업 분해): 프런티어
+    - 도구 결과 파싱만 필요한 경우: 경량
+    - 그 외 추론이 필요한 경우: 중간
+    """
+    if iteration == 0:
+        # 최초 작업 분해는 항상 프런티어
+        return ModelTier.FRONTIER
+
+    last_message = messages[-1] if messages else {}
+    content = last_message.get("content", "")
+
+    # 도구 결과만 파싱하는 단순 스텝
+    if tools_in_flight and len(content) < 500:
+        return ModelTier.LIGHT
+
+    # 긴 추론이나 복잡한 판단이 필요한 경우
+    if len(content) > 2000 or "plan" in content.lower():
+        return ModelTier.FRONTIER
+
+    return ModelTier.MID
+
+
+def run_routed_loop(task: str, tools: list) -> str:
+    messages = [{"role": "user", "content": task}]
+    iteration = 0
+
+    while iteration < 20:
+        tools_in_flight = any(
+            m.get("role") == "tool"
+            for m in messages[-3:]
+        )
+        tier = route_iteration(messages, iteration, tools_in_flight)
+
+        response = call_model(messages, model=tier.value, tools=tools)
+
+        if response.stop_reason == "end_turn":
+            return response.content
+
+        for call in response.tool_calls:
+            result = execute_tool(call)
+            messages.append(tool_result(call.id, result))
+
+        iteration += 1
+```
+
+## 라우팅의 리스크와 완화
+
+라우팅에는 실패 모드가 있다. 경량 모델로 잘못 라우팅했을 때 추론 품질이 떨어질 수 있고, 이것이 이후 스텝을 오염시킬 수 있다.
+
+**리스크 완화 전략**: 첫 이터레이션과 오케스트레이션 결정에는 항상 프런티어 모델을 사용한다. 경량 모델이 `tool_use` stop reason 없이 종료하거나 예상 형식과 다른 응답을 내면, 자동으로 중간 모델로 재시도한다. 중요한 상태 업데이트(작업 계획 수정, 에러 분석)는 항상 높은 계층으로 라우팅한다.
+
+**비용 절감 추정**: 내부 루프 작업의 40-60%가 도구 파라미터 추출이나 결과 파싱 같은 단순 작업이라면, 이들을 경량 모델로 처리하는 것만으로도 전체 루프 비용을 의미 있게 줄일 수 있다.
+
+## 섹션 마무리: 관찰·평가·경제학의 삼각형
+
+이 섹션에서 다룬 세 가지 주제 — 트레이싱(9-1), 평가(9-2~9-3), 경제학(9-4~9-6) — 은 사실 하나의 시스템으로 연결된다. 트레이싱이 없으면 비용 어디서 나오는지 알 수 없다. 평가가 없으면 모델을 다운그레이드해도 품질이 유지되는지 알 수 없다. 경제학을 모르면 트레이싱과 평가 인프라에 얼마를 써야 할지 결정할 수 없다. 이 삼각형이 프로덕션 에이전트 시스템의 운영 기반이다.
+
+import Quiz from '../../../components/learning/Quiz.tsx';
+
+<Quiz section="09-observability-eval-economics" client:load />

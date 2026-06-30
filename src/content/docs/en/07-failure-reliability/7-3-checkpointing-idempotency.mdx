@@ -1,0 +1,193 @@
+---
+title: "Checkpointing and Idempotency"
+description: How to create safe resumption points so that when an agentic loop fails midway, it can pick up where it left off rather than starting over.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Explain why checkpointing is essential for long-running agents"
+  - "Understand idempotency and how it applies to agentic loops"
+  - "Design LangGraph checkpointer integration and idempotency-key patterns"
+prerequisites:
+  - "7-1-infinite-doom-loops"
+estimated_minutes: 32
+references:
+  - title: "LangGraph Documentation"
+    url: "https://langchain-ai.github.io/langgraph/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## The Cost of Interruption
+
+A long-running agentic loop can be cut short at any time — network errors, container restarts, rate-limit exhaustion, human interruptions. Without checkpointing, the only option after an interruption is one: **start over from the beginning**. Tens of minutes and hundreds of iterations disappear. Cost and time double. Worse, partially completed external state — modified files, API calls already made, database writes half-done — can cause collisions on restart.
+
+Checkpointing solves this. It **saves the loop's state periodically so that execution can resume from just after the failure point** rather than from the top.
+
+```text
+Without checkpointing vs with checkpointing
+
+Without:
+  [A ─── B ─── C ─── D ─── (fail)] ──▶ restart: [A ─── B ─── ...]
+
+With:
+  [A ─── B ─▣─ C ─── D ─── (fail)] ──▶ resume from checkpoint B: [C ─── D ─── ...]
+                ↑
+           saved checkpoint
+```
+
+## What to Store in a Checkpoint
+
+An agentic loop checkpoint should contain at minimum three things:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│               Contents of a Checkpoint                       │
+├──────────────────────────────────────────────────────────────┤
+│ 1. Message history    Full conversation context              │
+│                       (serializable form)                    │
+│ 2. Loop state         Iteration number, current phase,       │
+│                       completed subtasks                     │
+│ 3. External state ref List of modified files,                │
+│                       created resource IDs                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+External state references are especially important. If the loop has already created files or called external APIs, the checkpoint must track those so that **on resume, they are not repeated**. This is precisely where idempotency enters the picture.
+
+## LangGraph's Checkpointer
+
+LangGraph includes a built-in **checkpointer** that automatically persists state between graph nodes. After each node executes, a state snapshot is saved. On failure, execution resumes from the last successfully saved node.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import StateGraph
+
+# In-memory checkpointer (use PostgreSQL or Redis in production)
+checkpointer = MemorySaver()
+
+builder = StateGraph(AgentState)
+builder.add_node("reason", reason_node)
+builder.add_node("act", act_node)
+builder.add_node("observe", observe_node)
+builder.add_edge("reason", "act")
+builder.add_edge("act", "observe")
+builder.add_conditional_edges("observe", should_continue)
+
+graph = builder.compile(checkpointer=checkpointer)
+
+# The thread_id is the resumption key
+config = {"configurable": {"thread_id": "task-abc-001"}}
+
+result = graph.invoke(initial_state, config)
+```
+
+The `thread_id` is the key to resumption. Re-invoking `graph.invoke` with the same `thread_id` does not restart from the beginning — it picks up from the last saved checkpoint.
+
+## Git-Commit-Per-Session Pattern
+
+A complementary checkpointing strategy commonly used by code-working agents is the **session-level git commit**. After each meaningful milestone, the agent commits the current state; the git history itself becomes the checkpoint ledger.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+import subprocess
+
+def commit_checkpoint(message: str, iteration: int):
+    """Checkpoint the current work state as a git commit."""
+    subprocess.run(["git", "add", "-A"], check=True)
+    subprocess.run([
+        "git", "commit", "-m",
+        f"[checkpoint] iter={iteration}: {message}"
+    ], check=True)
+
+for iteration in range(MAX_ITER):
+    ...
+    if milestone_reached(response):
+        commit_checkpoint(
+            f"milestone complete: {describe_milestone(response)}",
+            iteration
+        )
+```
+
+On failure, `git log` reveals the last checkpoint, and `git reset` to that commit restores a clean state for resumption. Anthropic's context engineering guide notes that Claude Code follows this pattern, committing after significant changes.
+
+## Idempotency: Same Action, Same Result
+
+Alongside checkpointing, **idempotency** is a property that every agentic loop must be designed around. An operation is idempotent if running it more than once produces the same result as running it once. Mathematically: f(f(x)) = f(x).
+
+Why does this matter in an agentic loop? When resuming from a checkpoint, some steps that were already completed may be re-executed. If those re-executions have side effects, the state after resumption differs from the intended state.
+
+```text
+Idempotency Examples
+
+  Idempotent (safe):     Overwrite a file with specific content
+                         Running twice leaves the same file
+
+  Non-idempotent (risky): Append a line to a file
+                           Running twice duplicates the line
+
+  Idempotent (safe):     API call with idempotency key
+                           Server prevents duplicate processing
+
+  Non-idempotent (risky): Send an email
+                           Running twice sends it twice
+```
+
+## The Idempotency Key Pattern
+
+For external API calls where idempotency must be enforced server-side, use an **idempotency key**.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+import hashlib
+import json
+
+def make_idempotency_key(task_id: str, action: dict) -> str:
+    """
+    Generate a deterministic key from the task ID and action content.
+    The same task performing the same action always produces the same key.
+    """
+    content = json.dumps({"task_id": task_id, "action": action}, sort_keys=True)
+    return hashlib.sha256(content.encode()).hexdigest()
+
+def call_external_api(task_id: str, action: dict):
+    key = make_idempotency_key(task_id, action)
+    return api_client.post(
+        "/operations",
+        json=action,
+        headers={"Idempotency-Key": key}  # server prevents duplicate processing
+    )
+```
+
+When the server has already recorded that key, a repeated request returns the previous result without executing the operation again. This pattern is essential for non-idempotent operations like payments, message sends, and database inserts.
+
+## How Checkpointing and Idempotency Relate
+
+The two concepts are mutually reinforcing:
+
+```text
+┌────────────────────────────────────────────────────────┐
+│  Checkpointing   Saves loop state; provides a          │
+│                  resumption point                      │
+│  Idempotency     Prevents duplicate side effects       │
+│                  when resumed steps re-execute         │
+│                                                        │
+│  Checkpointing without idempotency:                    │
+│    On resume, already-completed API calls run again    │
+│    → unintended side effects                           │
+│                                                        │
+│  Idempotency without checkpointing:                    │
+│    On failure, must restart from scratch               │
+│    → no side effects, but very inefficient             │
+│                                                        │
+│  Both together:                                        │
+│    Efficient resume with no unintended side effects    │
+└────────────────────────────────────────────────────────┘
+```
+
+The next chapter builds on these foundations to examine **retry strategies** and the **crash-only design** philosophy — where restart is the sole recovery path, made safe by the idempotency and checkpointing covered here.

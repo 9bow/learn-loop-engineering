@@ -1,0 +1,120 @@
+---
+title: "Handoff vs. Dispatch: Two Collaboration Models"
+description: Structurally compare the OpenAI Agents SDK handoff model (peer-to-peer delegation) with orchestrator dispatch (centralized assignment), and identify which scenarios each fits best.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Explain the control-flow difference between handoff and dispatch"
+  - "Understand the Agent, Handoff, and Guardrail primitives in the OpenAI Agents SDK"
+  - "Apply criteria for choosing between the two collaboration models in a given scenario"
+prerequisites:
+  - "10-1-orchestrator-worker-production"
+estimated_minutes: 28
+references:
+  - title: "OpenAI Agents SDK — Documentation"
+    url: "https://openai.github.io/openai-agents-python/"
+    accessed: "2026-06-30"
+  - title: "OpenAI — New tools for building agents (Agents SDK)"
+    url: "https://openai.com/index/new-tools-for-building-agents/"
+    accessed: "2026-06-30"
+---
+
+## Two Collaboration Models
+
+Multi-agent systems have two broad patterns for how agents cooperate. **Dispatch** places a central orchestrator in charge of all coordination: it creates subtasks, decides which worker receives each one, and collects results. The orchestrator always retains control. **Handoff** has agents pass control directly to a peer: Agent A determines that Agent B is better suited for the remaining work, transfers the entire execution context to B, and terminates itself.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│           Dispatch vs. Handoff Control Flow                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Dispatch:                                                      │
+│  User → Orchestrator → Worker A  (returns result)              │
+│                      → Worker B  (returns result)              │
+│                      → Worker C  (returns result)              │
+│                     ← Orchestrator synthesizes                  │
+│                                                                 │
+│  Handoff:                                                       │
+│  User → Agent A → Agent B → Agent C → final answer             │
+│          (full control  (full control                           │
+│           transfer)      transfer)                              │
+│          A no longer     B no longer                            │
+│          involved        involved                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## OpenAI Agents SDK Primitives
+
+The OpenAI Agents SDK elevates the handoff pattern to a first-class primitive. Three core concepts underpin the SDK.
+
+**Agent**: An LLM execution unit with a specific role, tools, and instructions. It runs its own loop and can declare peer delegation by listing other agents in its `handoffs` property.
+
+**Handoff**: The mechanism by which one agent transfers control to another. It does not merely return a result — it **transfers the entire execution context**. The receiving agent inherits the previous agent's conversation history and continues from there.
+
+**Guardrail**: A layer that validates agent inputs and outputs. It operates in parallel with model execution and blocks harmful output or out-of-scope requests. Because Guardrails run deterministically outside the model, an LLM cannot reason its way around a safety constraint.
+
+This is a conceptual pseudocode example; actual API signatures may differ.
+
+```python
+# Conceptual example in OpenAI Agents SDK style
+from agents import Agent, Handoff, Runner
+
+# Define specialized agents
+code_agent = Agent(
+    name="CodeAgent",
+    instructions="Handle code writing and debugging.",
+    tools=[read_file, write_file, run_tests],
+)
+
+research_agent = Agent(
+    name="ResearchAgent",
+    instructions="Handle technical documentation search and analysis.",
+    tools=[web_search, read_url],
+    # hand off to CodeAgent when coding is required
+    handoffs=[Handoff(agent=code_agent)],
+)
+
+triage_agent = Agent(
+    name="TriageAgent",
+    instructions="Analyze user requests and route to the appropriate agent.",
+    handoffs=[
+        Handoff(agent=research_agent),
+        Handoff(agent=code_agent),
+    ],
+)
+
+# Execution: TriageAgent starts; handoffs occur as needed
+result = Runner.run(triage_agent, user_message)
+```
+
+## When Handoff Fits Best
+
+The handoff model shines under the following conditions.
+
+**Clear specialization boundaries**: When Agent A reaches the edge of its domain, passing to the specialist agent for that domain is natural. A customer service bot handing off a technical support question to a tech agent, or a billing inquiry to a payments agent, is the archetypal case.
+
+**No result aggregation needed**: Handoff is a linear chain. The final agent responds directly to the user, with no separate synthesis step. This is a good fit when the task can be handled sequentially through a series of transformations.
+
+**Context continuity matters**: When the next agent must inherit the information collected by the previous one, handoff delivers the full context intact.
+
+## When Dispatch Fits Best
+
+**Result aggregation is required**: If multiple workers' results must be combined into one coherent answer, you need an orchestrator. Handoff does not naturally express this synthesis step.
+
+**Parallelism is critical**: Running ten subtasks simultaneously requires an orchestrator to start all ten workers at once. Handoff is inherently sequential.
+
+**Task plans need to change dynamically**: An orchestrator can adjust the next round of subtasks each time it receives worker results. Replanningmid-flight is awkward in a handoff chain.
+
+## Combining Both Models
+
+Real systems often combine the two patterns. The top layer uses an orchestrator for parallel dispatch; each worker uses handoffs internally to delegate to sub-specialists. This nested structure lets you get the parallelism benefits of dispatch where you need them while keeping handoff's simplicity for linear sub-workflows.
+
+| Criterion | Handoff | Dispatch |
+|---|---|---|
+| Control flow | linear transfer (A→B→C) | centralized (O→A, O→B) |
+| Result synthesis | not needed (last agent responds directly) | orchestrator synthesizes |
+| Parallelism | inherently sequential | natural parallel execution |
+| Context delivery | full transfer | task spec only |
+| Failure recovery | chain breaks, hard to recover | per-worker independent retry |
+
+The next chapter turns to the most fundamental scientific question for multi-agent and long-horizon systems: METR's research on **time horizon** — how long a task an AI can reliably complete, and why that number matters.

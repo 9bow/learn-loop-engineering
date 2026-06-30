@@ -1,0 +1,185 @@
+---
+title: "Sandboxing and Blast-Radius Containment"
+description: Isolating tool execution in agentic loops so that failures or misbehavior cannot propagate beyond the sandbox boundary — and designing timeout layers and least-privilege access to minimize damage.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Define blast radius and explain its significance in agentic loop design"
+  - "Design container-based sandboxing and a three-level timeout structure"
+  - "Apply the principle of least privilege to tool permission design"
+prerequisites:
+  - "7-1-infinite-doom-loops"
+estimated_minutes: 34
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Writing effective tools for AI agents"
+    url: "https://www.anthropic.com/engineering/writing-tools-for-agents"
+    accessed: "2026-06-30"
+---
+
+## What Is Blast Radius?
+
+When an agent executes code, modifies system state, or calls external APIs, how far can the damage spread if something goes wrong? This damage radius is called the **blast radius** — a term borrowed from physics, capturing the intuition that harm radiates outward in concentric rings from a center of impact.
+
+In loop engineering, limiting blast radius is not about preventing failures — it is about **minimizing damage when failures inevitably occur**. Every well-designed agent will eventually make a mistake. What matters is whether that mistake stays contained inside the loop or contaminates a production database and external services.
+
+```text
+Blast Radius Containment Goal
+
+  ┌──────────────────────────────────────────────────────────┐
+  │  Outer world (production DB, external APIs, filesystem)  │
+  │  ┌────────────────────────────────────────────────────┐  │
+  │  │  Sandbox boundary                                  │  │
+  │  │  ┌──────────────────────────────────────────────┐  │  │
+  │  │  │  Agent loop                                  │  │  │
+  │  │  │  ┌──────────────────────────────────────┐   │  │  │
+  │  │  │  │  Tool execution (code, shell, files) │   │  │  │
+  │  │  │  └──────────────────────────────────────┘   │  │  │
+  │  │  └──────────────────────────────────────────────┘  │  │
+  │  └────────────────────────────────────────────────────┘  │
+  └──────────────────────────────────────────────────────────┘
+
+  Design so that on error, damage is trapped in the innermost layer
+```
+
+## Container-Based Isolation
+
+The most powerful technical mechanism for limiting blast radius is **container isolation**. The code the agent executes runs in an environment that is separated from the host system. Both OpenAI's Codex and Anthropic's Claude Code run tool execution in isolated container environments.
+
+What container isolation provides:
+
+- **Filesystem isolation**: changes inside the container do not affect the host
+- **Network isolation**: internet access restricted to an explicit allowlist
+- **Process isolation**: container processes cannot reach host processes
+- **Resource limits**: CPU, memory, and disk usage can be capped
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+import subprocess
+
+def run_in_sandbox(code: str, timeout_seconds: int = 30) -> dict:
+    """
+    Run code in an isolated container.
+    If the timeout is exceeded, the container is forcibly terminated.
+    """
+    result = subprocess.run(
+        [
+            "docker", "run",
+            "--rm",                          # delete container after exit
+            "--network", "none",             # block all network access
+            "--memory", "512m",              # cap memory at 512 MB
+            "--cpus", "1.0",                 # limit to 1 CPU core
+            "--read-only",                   # root filesystem read-only
+            "--tmpfs", "/tmp:size=100m",     # only /tmp is writable
+            "python:3.12-slim",
+            "python", "-c", code
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds
+    )
+    return {
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "returncode": result.returncode,
+        "timed_out": False
+    }
+```
+
+## Three-Level Timeout Structure
+
+Sandboxing must be paired with **layered timeouts**. Without timeouts, a single hanging tool call can block the entire loop indefinitely.
+
+```text
+Three-Level Timeout Hierarchy
+
+  ┌────────────────────────────────────────────────────────┐
+  │  Level 3: Sandbox-wide timeout        (e.g. 10 min)   │
+  │  ┌──────────────────────────────────────────────────┐  │
+  │  │  Level 2: Loop-wide timeout        (e.g.  5 min) │  │
+  │  │  ┌────────────────────────────────────────────┐  │  │
+  │  │  │  Level 1: Per-tool timeout    (e.g.  30 s) │  │  │
+  │  │  └────────────────────────────────────────────┘  │  │
+  │  └──────────────────────────────────────────────────┘  │
+  └────────────────────────────────────────────────────────┘
+
+  Timeouts fire from innermost to outermost.
+  Level 1 fires: only that tool is terminated.
+  Level 3 fires: entire sandbox is force-killed.
+```
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+import asyncio
+
+TOOL_TIMEOUT = 30       # per-tool: 30 seconds
+LOOP_TIMEOUT = 300      # loop-wide: 5 minutes
+SANDBOX_TIMEOUT = 600   # sandbox-wide: 10 minutes
+
+async def run_tool_with_timeout(tool_fn, *args, **kwargs):
+    """Level 1: per-tool timeout."""
+    try:
+        return await asyncio.wait_for(
+            tool_fn(*args, **kwargs),
+            timeout=TOOL_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        return {"error": f"Tool did not complete within {TOOL_TIMEOUT}s"}
+
+async def run_agent_loop(task):
+    """Level 2: loop-wide timeout."""
+    try:
+        return await asyncio.wait_for(
+            _inner_loop(task),
+            timeout=LOOP_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        return {"error": f"Loop did not complete within {LOOP_TIMEOUT}s"}
+```
+
+Each level is independent. When the per-tool timeout fires, only that tool is terminated and the loop continues. When the loop-wide timeout fires, the in-progress loop is stopped and a checkpoint is saved. The sandbox-wide timeout is the last resort — it force-kills everything.
+
+## Principle of Least Privilege
+
+Another core technique for reducing blast radius is the **principle of least privilege**: give the agent the minimum permissions required for the current task, and no more.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│              Tool Permission Design Principles                │
+├──────────────────────────────────────────────────────────────┤
+│ Excessive:  agent can read/write the entire filesystem       │
+│ Minimal:    agent can only read/write the working directory  │
+│                                                              │
+│ Excessive:  full database read/write access                  │
+│ Minimal:    read access to specific tables only              │
+│                                                              │
+│ Excessive:  any external API can be called                   │
+│ Minimal:    only allowlisted API endpoints                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Anthropic's tool design guide emphasizes: do not pre-grant permissions the agent "might" need. Grant the minimum required at the moment it is needed. Dynamically scoped permissions dramatically reduce blast radius.
+
+## Reversibility-First Design
+
+The final element of the sandboxing philosophy is **reversibility-first**: design every action the agent can take to be undoable. A reversible mistake can be corrected; an irreversible mistake leaves permanent damage.
+
+Reversibility design examples:
+
+- Delete a file → instead, move it to a `.trash/` folder
+- Update a database record → wrap in a transaction; take a snapshot first
+- Send an email → place it in a review queue; require human approval before delivery
+- Call an external API → run in dry-run mode first to preview effects
+
+Loop engineering's guiding principle — "design for mistakes before they happen" — is concretized here in sandboxing and reversibility.
+
+---
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="07-failure-reliability" lang="en" client:load />

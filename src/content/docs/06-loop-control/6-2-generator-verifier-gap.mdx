@@ -1,0 +1,110 @@
+---
+title: "Generator-Verifier 격차"
+description: 생성과 검증의 난이도 비대칭이 왜 에이전틱 루프에서 치명적인지, 그리고 이를 해소하기 위해 검증 스텝이 어떻게 루프 구조 안에 자리 잡아야 하는지 살펴봅니다.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Generator-Verifier 격차가 무엇이고 왜 에이전틱 루프에서 위험한지 설명할 수 있다"
+  - "검증 스텝이 없는 루프에서 발생하는 구체적 실패 패턴을 식별할 수 있다"
+  - "루프 안에 검증 단계를 설계하는 기본 구조를 구현할 수 있다"
+prerequisites:
+  - "6-1-stopping-conditions"
+estimated_minutes: 27
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Zheng et al. — Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena (arXiv:2306.05685)"
+    url: "https://arxiv.org/abs/2306.05685"
+    accessed: "2026-06-30"
+---
+
+## 생성은 쉽고 검증은 어렵다
+
+인간 인지의 고전적 비대칭이 있다. 훌륭한 시를 짓는 것은 어렵지만, 누군가의 시가 훌륭한지 아닌지 판단하는 것은 상대적으로 쉽다. 바둑 수를 창의적으로 두는 것은 어렵지만, 그 수가 규칙에 맞는지 확인하는 것은 컴퓨터로도 즉시 가능하다. 이것이 **Generator-Verifier 격차(Generator-Verifier Gap)**다. 생성(generation)의 난이도와 검증(verification)의 난이도가 비대칭적이라는 현상이다.
+
+그런데 LLM 에이전트에서는 이 관계가 뒤집히는 측면이 있다. **생성은 모델이 자연스럽게 잘 하는 일이다.** 하지만 **자신이 생성한 내용이 올바른지 검증하는 것은 종종 더 어렵다.** 특히 모델은 유창하고 그럴듯한 텍스트를 생성하는 데 특화되어 있기 때문에, 틀린 답도 자신 있게(confidently) 내놓는다. 검증 없이 생성만 반복하는 루프는 이 취약점에 무방비로 노출된다.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│             Generator-Verifier 격차의 두 방향                  │
+├─────────────────────────────┬────────────────────────────────┤
+│  인간 인지                   │  LLM 에이전트                  │
+├─────────────────────────────┼────────────────────────────────┤
+│  생성 > 검증 (어려운 쪽)    │  생성 ≈ 쉬움 (유창하게 출력)  │
+│  "좋은 시 짓기 > 판단하기"  │  "답 생성 > 답 검증"          │
+│                             │                                │
+│  → 검증이 상대적으로 쉽다   │  → 검증이 오히려 더 어렵다    │
+│    (규칙, 기준으로 확인)    │    (모델이 틀린 답도 자신감)   │
+└─────────────────────────────┴────────────────────────────────┘
+```
+
+## 검증 스텝이 없는 루프의 실패 패턴
+
+검증 없이 생성만 반복하는 에이전틱 루프는 다음과 같은 실패 패턴을 보인다.
+
+**패턴 1: 이른 성공 종료(Premature Success).** 모델이 작업을 완료하지 않았음에도 "완료됐다"고 선언하고 루프를 끝낸다. Anthropic의 장기 에이전트 가이드는 이것을 명시적으로 경계한다. 외부 검증자(테스트 러너, 별도 LLM 심판 등) 없이 모델 자신의 선언만 믿으면 이 실패를 잡아낼 수 없다.
+
+**패턴 2: 자기 확인 편향(Self-confirmation Bias).** 모델에게 "네가 생성한 코드가 맞나요?"라고 물으면, 모델은 자신이 방금 만든 것을 검증하는 데 제대로 비판적이지 못한 경향이 있다. 자신이 생성자이자 검증자가 되는 것은 이해충돌이다.
+
+**패턴 3: 그럴듯한 오답의 전파.** LLM은 사실적으로 틀렸더라도 유창하게 표현되고 논리적으로 들리는 텍스트를 생성할 수 있다. 검증 없이 이 오답이 다음 스텝의 전제로 쓰이면, 오류가 하류 전체에 전파된다.
+
+## 검증 스텝을 루프에 삽입하기
+
+Generator-Verifier 격차를 해소하는 가장 직접적인 방법은 생성(generator)과 검증(verifier)을 루프 구조 안에서 명시적으로 분리하는 것이다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+def run_loop_with_verification(task: str, tools: list, max_iters: int = 20):
+    messages = [{"role": "user", "content": task}]
+
+    for _ in range(max_iters):
+        # 1단계: 생성 (Generator)
+        response = model.generate(messages, tools=tools)
+
+        if response.stop_reason == "end_turn":
+            candidate = response.content
+
+            # 2단계: 검증 (Verifier) — 생성자와 분리
+            verification = verify(candidate, task)
+
+            if verification.passed:
+                return {"status": "success", "result": candidate}
+            else:
+                # 검증 실패: 피드백을 컨텍스트에 추가하고 재시도
+                messages.append({
+                    "role": "user",
+                    "content": f"검증 실패: {verification.reason}\n다시 시도하세요."
+                })
+                continue
+
+        # 도구 실행 후 계속
+        for call in response.tool_calls:
+            result = run_tool(call)
+            messages.append(tool_result(result))
+
+    return {"status": "max_iters_exceeded"}
+```
+
+여기서 `verify()` 함수는 다양한 방식으로 구현될 수 있다. 다음 챕터들이 각각 하나의 구현 방법을 다룬다.
+
+| 검증 방법 | 특성 | 챕터 |
+|----------|------|------|
+| 테스트 러너 | 결정론적, 빠름, 코딩 태스크에 적합 | 6-4 |
+| LLM-as-Judge | 유연함, 언어 태스크에 적합, 편향 존재 | 6-3 |
+| 인간 검토 | 가장 신뢰성 높음, 느리고 비쌈 | 6-5 |
+| 규칙 기반 검사 | 빠름, 제한적 적용 범위 | — |
+
+## 검증 난이도와 생성 난이도의 정렬
+
+이상적인 루프 설계에서는 검증이 생성보다 **명확히 더 쉽거나 더 신뢰할 수 있어야** 한다. 코딩 에이전트가 이 원칙의 모범 사례다. 코드를 생성하는 것은 어렵지만, 그 코드가 테스트를 통과하는지 확인하는 것은 결정론적이고 자동화되어 있다. 테스트 통과 여부라는 검증 신호가 생성의 품질을 명확하게 측정한다.
+
+반대로 검증이 생성만큼 어렵거나 더 어려운 태스크에서는 자동화 루프의 한계가 드러난다. 창의적 글쓰기의 품질, 복잡한 전략 결정의 옳고 그름 같은 태스크에서 자동 검증은 불완전할 수밖에 없다. 이 경우에는 인간 검토(6-5)나 LLM-as-Judge의 한계를 인식하면서 사용하는 것이 현실적이다.
+
+## 검증 없는 루프는 무엇을 만들어 내는가
+
+검증 스텝이 없는 루프는 기술적으로 "동작"하지만, 그 출력의 품질을 보장할 방법이 없다. 루프가 30회 돌고 `end_turn`을 반환하면, 그것은 모델이 만족한다는 의미일 뿐 작업이 실제로 올바르게 완료됐다는 의미가 아니다. Generator-Verifier 격차를 인식하는 것이 루프에 검증 단계를 설계하는 출발점이다. 다음 두 챕터에서는 이 격차를 메우는 두 가지 주요 자동 검증 전략 — LLM-as-Judge와 테스트 주도 루프 — 을 구체적으로 다룬다.

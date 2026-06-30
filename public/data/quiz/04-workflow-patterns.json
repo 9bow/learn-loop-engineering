@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "Prompt Chaining에서 Gate(검증 체크포인트)의 역할은?",
+    "options": [
+      "이전 단계의 출력이 다음 단계의 입력으로 적합한지 검증하고 미달 시 중단 또는 재시도한다",
+      "각 단계에서 사용할 모델을 자동으로 선택한다",
+      "병렬 처리 여부를 결정한다",
+      "전체 실행 비용을 추적한다"
+    ],
+    "answer": 0,
+    "explanation": "챕터 4-1에서 Gate는 단계 간 품질 검증 체크포인트로, 이전 단계 출력이 기준에 못 미치면 파이프라인을 중단하거나 재시도를 유발한다고 설명합니다."
+  },
+  {
+    "id": "q2",
+    "question": "Routing 패턴에서 분류기(classifier)가 빠르고 저렴해야 하는 이유는?",
+    "options": [
+      "분류기가 느리면 전체 파이프라인 지연이 발생하기 때문",
+      "분류기에 프런티어 모델을 쓰면 라우팅의 비용 이점이 사라지기 때문",
+      "분류기는 항상 경량 모델만 사용해야 규정에 맞기 때문",
+      "라우팅이 빠를수록 전문 파이프라인 성능도 향상되기 때문"
+    ],
+    "answer": 1,
+    "explanation": "챕터 4-2에서 라우팅의 핵심 목적은 비용과 성능 최적화이므로 분류기에 비싼 모델을 쓰면 절감 이점이 사라진다고 설명합니다."
+  },
+  {
+    "id": "q3",
+    "question": "Parallelization의 두 가지 하위 패턴은?",
+    "options": [
+      "Splitting과 Merging",
+      "Sectioning과 Voting",
+      "Routing과 Chaining",
+      "Dispatching과 Aggregating"
+    ],
+    "answer": 1,
+    "explanation": "챕터 4-3에서 Parallelization의 두 하위 패턴은 입력을 조각으로 나눠 병렬 처리 후 합치는 Sectioning과, 동일한 입력으로 여러 번 실행해 다수결로 결정하는 Voting이라고 설명합니다."
+  },
+  {
+    "id": "q4",
+    "question": "Orchestrator-Workers 패턴이 단순 Parallelization(Sectioning)과 다른 핵심 차이는?",
+    "options": [
+      "Orchestrator-Workers는 직렬 실행만 가능하다",
+      "Orchestrator-Workers의 서브태스크는 이전 워커 결과에 따라 동적으로 생성된다",
+      "Orchestrator-Workers는 LLM을 사용하지 않는다",
+      "Orchestrator-Workers는 반드시 단일 모델만 사용한다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 4-4에서 Sectioning은 사전에 분할 방식이 고정된 반면, Orchestrator-Workers는 오케스트레이터가 이전 워커 결과를 보고 다음 서브태스크를 동적으로 결정한다고 설명합니다."
+  },
+  {
+    "id": "q5",
+    "question": "굿하트 법칙(Goodhart's Law)이 에이전틱 루프에 적용되는 의미는?",
+    "options": [
+      "더 많은 데이터가 항상 더 좋은 결과를 낳는다",
+      "어떤 지표가 목표가 되는 순간, 그것은 좋은 지표이기를 멈춘다",
+      "에이전트는 항상 최적 경로를 선택한다",
+      "컨텍스트가 길수록 모델 성능이 향상된다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 4-5에서 굿하트 법칙을 인용해, 에이전트가 실제 목표가 아닌 평가 지표 자체를 최적화하는 보상 해킹(reward hacking)의 위험을 경고합니다."
+  },
+  {
+    "id": "q6",
+    "question": "Evaluator-Optimizer 패턴에서 Generator와 Evaluator를 별도 호출로 분리하는 이유는?",
+    "options": [
+      "두 역할에 서로 다른 모델이 필요하기 때문",
+      "동일 모델이 생성과 평가를 동시에 할 때 발생하는 아첨적 비판(sycophantic critique) 문제를 방지하기 위해",
+      "비용을 절반으로 줄이기 위해",
+      "병렬 실행을 가능하게 하기 위해"
+    ],
+    "answer": 1,
+    "explanation": "챕터 4-5에서 자신이 생성한 출력을 스스로 평가하면 실제 문제를 발견하지 못하는 아첨적 비판 문제가 발생하므로, 생성(Generator)과 평가(Evaluator)를 분리한다고 설명합니다."
+  },
+  {
+    "id": "q7",
+    "question": "Prompt Chaining이 단일 복잡한 프롬프트 대비 갖는 핵심 장점은?",
+    "options": [
+      "더 적은 LLM 호출로 동일한 작업을 완료한다",
+      "병렬 실행이 가능해 항상 더 빠르다",
+      "외부 도구 없이 복잡한 작업을 수행한다",
+      "각 단계의 출력을 중간에 검증할 수 있어 실패 지점 파악과 품질 통제가 용이하다"
+    ],
+    "answer": 3,
+    "explanation": "챕터 4-1에서 Prompt Chaining의 장점은 각 단계 출력의 중간 검증이 가능해 디버깅이 쉽고 단계별 품질 통제가 된다는 점입니다."
+  },
+  {
+    "id": "q8",
+    "question": "Sectioning 패턴 적용 시 반드시 확인해야 할 전제 조건은?",
+    "options": [
+      "모든 섹션이 동일한 크기여야 한다",
+      "섹션들이 실제로 독립적이어야 한다(상호 참조 없어야 한다)",
+      "동일한 모델 계열을 사용해야 한다",
+      "최소 5개 이상의 섹션이 있어야 한다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 4-3에서 Sectioning은 섹션들이 독립적일 때 유효하며, 섹션 간 상호 참조가 있으면 병렬 처리 결과를 합칠 때 일관성이 무너진다고 경고합니다."
+  },
+  {
+    "id": "q9",
+    "question": "Anthropic이 정의한 다섯 가지 워크플로 패턴에 포함되지 않는 것은?",
+    "options": [
+      "Prompt Chaining",
+      "Routing",
+      "Reflexion",
+      "Evaluator-Optimizer"
+    ],
+    "answer": 2,
+    "explanation": "챕터 4-0(섹션 소개)에서 Anthropic의 다섯 가지 워크플로 패턴은 Prompt Chaining, Routing, Parallelization, Orchestrator-Workers, Evaluator-Optimizer입니다. Reflexion은 싱글 에이전트 패턴입니다."
+  },
+  {
+    "id": "q10",
+    "question": "Evaluator-Optimizer에서 'Evaluator Drift' 실패 모드란?",
+    "options": [
+      "평가자가 점차 생성자의 기준에 동조해 점수가 지속적으로 상승하는 현상",
+      "평가자가 너무 엄격해 루프가 종료되지 않는 현상",
+      "평가자가 오프라인 상태가 되는 현상",
+      "평가자와 생성자 간 통신 지연 현상"
+    ],
+    "answer": 0,
+    "explanation": "챕터 4-5에서 Evaluator Drift는 피드백이 반복되면서 평가자가 생성자 기준에 동조하기 시작해 점수가 점진적으로 상승하고 실제 품질 향상이 없어도 루프가 종료되는 현상입니다."
+  },
+  {
+    "id": "q11",
+    "question": "Voting 패턴에서 동일한 프롬프트를 여러 번 실행하는 이유는?",
+    "options": [
+      "실행 비용을 나누기 위해",
+      "모델 지식의 한계를 보완하기 위해",
+      "LLM의 확률적 특성을 활용해 샘플링 다양성으로 단일 실행보다 더 신뢰성 높은 답을 얻기 위해",
+      "서로 다른 모델을 비교하기 위해"
+    ],
+    "answer": 2,
+    "explanation": "챕터 4-3에서 Voting은 동일한 태스크를 여러 번 샘플링하고 다수결로 결정해 개별 실행의 오류를 줄이는 원리로, Self-Consistency와 같은 원리라고 설명합니다."
+  },
+  {
+    "id": "q12",
+    "question": "Routing 패턴에서 '소프트 라우팅(soft routing)'이 '하드 라우팅(hard routing)'과 다른 점은?",
+    "options": [
+      "소프트 라우팅은 규칙 기반, 하드 라우팅은 LLM 기반이다",
+      "소프트 라우팅은 여러 파이프라인 결과를 가중 혼합하고, 하드 라우팅은 하나의 파이프라인만 선택한다",
+      "소프트 라우팅은 항상 비용이 더 저렴하다",
+      "소프트 라우팅은 병렬 실행이 불가능하다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 4-2에서 하드 라우팅은 분류기가 하나의 파이프라인을 선택하고, 소프트 라우팅은 여러 파이프라인을 실행하고 신뢰도 기반으로 결과를 가중 혼합한다고 설명합니다."
+  },
+  {
+    "id": "q13",
+    "question": "Orchestrator-Workers 패턴에서 오케스트레이터의 태스크 스펙(task spec) 요소가 아닌 것은?",
+    "options": [
+      "태스크 유형(task type)",
+      "입력 데이터(input)",
+      "기대 출력 스키마(expected output schema)",
+      "워커 실행 예산(worker budget)"
+    ],
+    "answer": 3,
+    "explanation": "챕터 4-4에서 오케스트레이터가 워커에게 전달하는 태스크 스펙의 요소로 task_id, type, input, expected_output_schema를 나열합니다. 워커 실행 예산은 포함되지 않습니다."
+  }
+]

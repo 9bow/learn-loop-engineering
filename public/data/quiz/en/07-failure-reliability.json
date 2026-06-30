@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "What is the difference between an infinite loop and a doom loop?",
+    "options": [
+      "An infinite loop is intentional; a doom loop is caused by a bug",
+      "An infinite loop has no termination condition or one that can never be reached; a doom loop attempts to terminate but repeatedly hits the same failure",
+      "Infinite loops only occur in agents; doom loops only occur in workflows",
+      "A doom loop always causes cost explosion, but an infinite loop does not"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 7-1 distinguishes an infinite loop (no termination condition or one that is unreachable) from a doom loop (intends to terminate but repeats the same failure with the same approach)."
+  },
+  {
+    "id": "q2",
+    "question": "In an error cascade where each step has an independent success probability of p=0.95 and there are n=10 steps, the overall success probability is approximately?",
+    "options": [
+      "~90%",
+      "~80%",
+      "~60%",
+      "~40%"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 7-2 explains that overall success probability is calculated as p^n, and 0.95^10 ≈ 0.60, or about 60%. Success probability drops sharply as steps accumulate."
+  },
+  {
+    "id": "q3",
+    "question": "What is the core reason checkpointing is needed for long-running agents?",
+    "options": [
+      "To resume execution from after the failure point without restarting from scratch",
+      "To improve loop execution speed",
+      "To track costs in real time",
+      "To relay communication between multi-agents"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 7-3 explains that the purpose of checkpointing is to allow resuming from the last checkpoint when a failure occurs during a long run, without needing to restart the entire task from the beginning."
+  },
+  {
+    "id": "q4",
+    "question": "Why is idempotency important in an agentic loop?",
+    "options": [
+      "To guarantee different results each time the same tool is called",
+      "To prevent already-completed external operations from being re-executed when a loop resumes",
+      "To distribute costs evenly",
+      "To enable parallel processing"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 7-3 explains that idempotency is needed to prevent side effects such as duplicate API calls or file writes when a loop is resumed."
+  },
+  {
+    "id": "q5",
+    "question": "Between transient errors and permanent errors, for which type is retrying effective?",
+    "options": [
+      "Only permanent errors benefit from retrying",
+      "Only transient errors benefit from retrying",
+      "Both error types benefit equally from retrying",
+      "Neither error type should be retried"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 7-4 explains that transient errors (network timeouts, 503 errors, etc.) can be resolved by retrying, while permanent errors (invalid API key, malformed input, etc.) fail identically regardless of retries."
+  },
+  {
+    "id": "q6",
+    "question": "Why is jitter added to exponential backoff?",
+    "options": [
+      "To increase the retry speed",
+      "To prevent the 'thundering herd' phenomenon where multiple clients retry at the same time",
+      "To display error messages more clearly",
+      "To make the code simpler"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 7-4 explains that random jitter is added to prevent the thundering herd phenomenon, where multiple clients simultaneously retry at identical intervals and flood the server with another burst of requests."
+  },
+  {
+    "id": "q7",
+    "question": "What is the concept of 'blast radius' in sandboxing?",
+    "options": [
+      "Completely isolating the agent to block external access",
+      "The maximum scope of damage that can occur when an error or malfunction happens",
+      "A benchmark metric for measuring agent performance",
+      "The proportion of context window occupied by tool results"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 7-5 explains that blast radius is the maximum scope of damage that can occur when an agent malfunctions, and the purpose of sandboxing is to limit that scope."
+  },
+  {
+    "id": "q8",
+    "question": "Why should the strategy be changed when retrying?",
+    "options": [
+      "To reduce the number of retries",
+      "Because retrying with the same strategy creates a doom loop that repeats the same failure",
+      "To reduce costs",
+      "To avoid API rate limits"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 7-1 states that the essence of a doom loop is repeating the same failure with the same approach, so escaping it requires switching to a different strategy (different tool, different approach) on retry."
+  },
+  {
+    "id": "q9",
+    "question": "What is the most effective way to prevent goal drift?",
+    "options": [
+      "Compress context frequently",
+      "Provide the agent with more tools",
+      "Preserve the original goal as a separate immutable field and re-inject it into the system prompt every iteration",
+      "Reduce the number of iterations"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 7-2 recommends preserving the original goal as an immutable field in the loop state and re-injecting it into the system prompt every iteration to prevent goal drift."
+  },
+  {
+    "id": "q10",
+    "question": "Which of the following should NOT be saved in a checkpoint?",
+    "options": [
+      "Message history",
+      "Loop state (iteration number, current step)",
+      "External state references (list of modified files)",
+      "Model weights"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 7-3 lists message history, loop state, and external state references as checkpoint contents. Model weights are not a checkpoint target."
+  },
+  {
+    "id": "q11",
+    "question": "What does LangGraph's MemorySaver checkpointer do?",
+    "options": [
+      "It optimizes the execution speed of graph nodes",
+      "It saves a state snapshot after each node execution and allows resuming from the last successful node on failure",
+      "It relays messages between multi-agents",
+      "It automatically limits token usage"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 7-3 explains that LangGraph's MemorySaver saves a state snapshot after each node execution, allowing resumption from after the last successful node if a failure occurs."
+  },
+  {
+    "id": "q12",
+    "question": "Why is 'premature success' dangerous?",
+    "options": [
+      "Because the loop terminates too early and time is wasted",
+      "Because an incorrect result is recorded as complete, and downstream steps accumulate on top of that incorrect result",
+      "Because the next iteration does not start",
+      "Because costs are overcharged"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 7-2 explains that premature success is the misclassification of a failed result as successful, and subsequent steps built on top of that incorrect result amplify the error."
+  },
+  {
+    "id": "q13",
+    "question": "Which of the following is NOT a form of protection provided by container-based isolation for agents?",
+    "options": [
+      "Filesystem isolation",
+      "Network access restriction",
+      "Process isolation",
+      "Model weight isolation"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 7-5 explains that container-based isolation provides filesystem, network, and process isolation to limit the agent's blast radius. Model weight isolation is not part of this."
+  }
+]

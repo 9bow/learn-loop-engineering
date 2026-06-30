@@ -1,0 +1,133 @@
+---
+title: "Routing: 분류 기반 분기"
+description: 분류기 LLM이 입력을 분석해 가장 적합한 전문화 파이프라인으로 라우팅하는 패턴과 오분류 실패 모드를 살펴봅니다.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Routing 패턴의 분류기-전문 파이프라인 구조를 설명할 수 있다"
+  - "오분류(misclassification) 실패 모드와 완화 전략을 이해한다"
+  - "하드 라우팅과 소프트 라우팅의 차이와 사용 조건을 비교할 수 있다"
+prerequisites:
+  - "4-1-prompt-chaining"
+estimated_minutes: 26
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "RouteLLM — Learning to Route in LLMs (LMSYS)"
+    url: "https://lmsys.org/blog/2024-07-01-routellm/"
+    accessed: "2026-06-30"
+---
+
+## 하나의 파이프라인이 모든 것을 다 잘할 수 없다
+
+고객 지원 시스템을 생각해 보자. 청구서 문의, 기술 버그, 일반 정보 요청, 서비스 해지 요청이 같은 채널로 들어온다. 이 네 가지 유형을 하나의 프롬프트로 처리하면, 각 유형에 특화된 전문 지식과 어조, 절차를 모두 하나의 거대한 프롬프트에 욱여넣어야 한다. 프롬프트가 길어질수록 집중도는 떨어지고, 드문 케이스에 과도하게 최적화된 출력이 일반 케이스를 방해한다.
+
+Routing은 이 문제를 **분리와 전문화**로 해결한다. 분류기가 입력을 먼저 분석해 적합한 카테고리를 결정하고, 각 카테고리는 그 유형에 최적화된 별도 파이프라인으로 처리된다.
+
+## 라우터 + 전문 파이프라인 구조
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                    Routing 패턴 흐름                              │
+│                                                                  │
+│   사용자 입력                                                     │
+│        │                                                         │
+│        ▼                                                         │
+│   ┌──────────────┐                                               │
+│   │   분류기     │  "이 요청은 어느 카테고리인가?"                  │
+│   │  (Router)   │  (LLM 또는 경량 분류 모델)                      │
+│   └──────┬───────┘                                               │
+│          │                                                       │
+│    ┌─────┴──────┬────────────┬───────────────┐                  │
+│    ▼            ▼            ▼               ▼                  │
+│ [청구서]     [기술지원]    [일반정보]      [해지요청]             │
+│ 파이프라인  파이프라인    파이프라인      파이프라인             │
+│    │            │            │               │                  │
+│    ▼            ▼            ▼               ▼                  │
+│  DB조회    디버깅절차     FAQ검색       해지처리 플로우           │
+│    │            │            │               │                  │
+│    └─────────────┴────────────┴───────────────┘                  │
+│                              ▼                                   │
+│                         최종 응답                                 │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+분류기는 반드시 LLM일 필요가 없다. 단순한 경우에는 키워드 매칭이나 규칙 기반 분류기로 충분하다. 복잡하거나 모호한 입력에는 경량 LLM(Haiku 등)이 더 정확한 분류를 제공한다. 중요한 것은 분류기가 **빠르고 저렴**해야 한다는 점이다. 분류기 자체에 프런티어 모델을 쓰면 라우팅의 비용 이점이 사라진다.
+
+## Python 구현 예시
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+from typing import Callable
+
+# 각 카테고리에 대한 전문 파이프라인 정의
+PIPELINES: dict[str, Callable[[str], str]] = {
+    "billing": handle_billing_request,
+    "technical": handle_technical_request,
+    "general": handle_general_inquiry,
+    "cancellation": handle_cancellation_request,
+}
+
+CATEGORIES = list(PIPELINES.keys())
+
+def route_request(model, user_input: str, confidence_threshold: float = 0.8) -> str:
+    """
+    분류기로 카테고리를 결정한 뒤 해당 파이프라인으로 라우팅.
+    """
+    # 1. 분류 (경량 모델 사용 권장)
+    classify_prompt = (
+        f"다음 고객 요청을 분류하라.\n"
+        f"카테고리: {', '.join(CATEGORIES)}\n\n"
+        f"요청: {user_input}\n\n"
+        "JSON 형식으로 응답: {{\"category\": \"...\", \"confidence\": 0.0~1.0}}"
+    )
+    classify_result = model.generate(
+        [{"role": "user", "content": classify_prompt}],
+        temperature=0.0,  # 분류는 결정론적으로
+    )
+    parsed = parse_json(classify_result.text)
+    category = parsed.get("category", "general")
+    confidence = parsed.get("confidence", 0.0)
+
+    # 2. 신뢰도 낮으면 폴백
+    if confidence < confidence_threshold:
+        category = "general"  # 또는 인간 에스컬레이션
+
+    # 3. 해당 파이프라인 실행
+    pipeline_fn = PIPELINES.get(category, PIPELINES["general"])
+    return pipeline_fn(user_input)
+```
+
+## 오분류: Routing의 핵심 실패 모드
+
+Routing 패턴의 가장 치명적인 약점은 **오분류(misclassification)**다. 분류기가 틀리면 잘못된 파이프라인이 실행되고, 그 결과가 사용자에게 전달된다. 더 심각한 문제는 오분류가 **조용히(silently)** 일어난다는 것이다. 기술 지원 질문이 청구서 파이프라인으로 라우팅되면, 청구서 담당 파이프라인이 자신의 입력 범위 내에서 "나름대로 합리적인" 응답을 생성할 수 있어 사람이 쉽게 눈치채지 못한다.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│           오분류 위험 완화 전략                                │
+├──────────────────┬───────────────────────────────────────────┤
+│ 전략             │ 설명                                      │
+├──────────────────┼───────────────────────────────────────────┤
+│ 신뢰도 임계값    │ 확신 낮으면 폴백/에스컬레이션              │
+│ Fallback 카테고리│ "기타" 카테고리로 안전망 확보              │
+│ 예측 로깅        │ 분류 결정을 모두 기록, 오류 패턴 추적     │
+│ 인간 리뷰 샘플링 │ 무작위 N%를 인간이 검토                   │
+│ 다중 분류기 앙상블│ 두 분류기 의견 불일치 시 에스컬레이션     │
+└──────────────────┴───────────────────────────────────────────┘
+```
+
+## 하드 라우팅 vs. 소프트 라우팅
+
+**하드 라우팅(hard routing)**은 하나의 파이프라인에만 전달한다. 의사결정이 단순하고 오버헤드가 없지만, 오분류 위험이 그대로 남는다.
+
+**소프트 라우팅(soft routing)**은 상위 K개 카테고리 모두에 전달한 뒤 결과를 통합하거나 사람이 선택한다. 오분류 내성은 높아지지만 비용이 K배 늘어난다.
+
+실용적으로는 **신뢰도 기반 하이브리드**가 많이 쓰인다. 신뢰도가 높으면 하드 라우팅, 낮으면 소프트 라우팅이나 인간 에스컬레이션으로 전환한다.
+
+## RouteLLM: 모델 선택으로서의 라우팅
+
+Routing 아이디어는 파이프라인 분기뿐 아니라 **모델 선택**에도 적용된다. RouteLLM(LMSYS, 2024)은 쿼리 복잡도를 판단해 단순 쿼리는 저렴한 모델로, 복잡한 쿼리는 프런티어 모델로 라우팅한다. 이를 통해 GPT-4 수준 성능의 95%를 유지하면서 비용을 크게 절감할 수 있다고 보고했다. 이 원리는 9-6-model-routing 챕터에서 더 자세히 다룬다.
+
+다음 챕터에서는 Routing의 단선 분기와 달리, 여러 작업을 **동시에** 실행하는 Parallelization 패턴을 살펴본다.

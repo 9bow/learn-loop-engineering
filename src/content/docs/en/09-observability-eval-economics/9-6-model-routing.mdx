@@ -1,0 +1,138 @@
+---
+title: "Model Routing: Reducing Inner-Loop Costs"
+description: Learn how to cut agent loop costs by routing each step to the model tier that matches its complexity — applying frontier models only where deep reasoning is genuinely needed.
+sidebar:
+  order: 6
+learning_objectives:
+  - "Distinguish which model tier fits each task type inside an agent loop"
+  - "Explain RouteLLM's routing approach and its cost-performance tradeoff"
+  - "Implement a pattern that selects different models for inner-loop vs. orchestration steps"
+prerequisites:
+  - "9-4-loop-economics"
+estimated_minutes: 30
+references:
+  - title: "LMSYS — RouteLLM: Learning to Route LLMs with Preference Data"
+    url: "https://lmsys.org/blog/2024-07-01-routellm/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## Not Every Step Needs the Same Model
+
+An agent loop mixes tasks of very different complexity: deep reasoning about the next action to take, extraction of tool call parameters, simple text parsing, summarization of tool results. Routing all of these through the most expensive frontier model is wasteful.
+
+**Model routing** is the strategy of matching each task to the model tier that fits its complexity — reducing cost while preserving overall quality. Anthropic explicitly recommends task-complexity-based model selection in multi-agent systems.
+
+## Model Tiers in an Agent Loop
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│              Model Tier Structure for an Agent Loop             │
+├───────────────────────┬─────────────────────────────────────────┤
+│  Tier                 │  Appropriate Tasks                      │
+├───────────────────────┼─────────────────────────────────────────┤
+│  Frontier (Opus-class)│  Task decomposition, complex reasoning  │
+│                       │  orchestration decisions, ambiguous     │
+│                       │  instruction interpretation, quality    │
+│                       │  judgment                               │
+├───────────────────────┼─────────────────────────────────────────┤
+│  Mid (Sonnet-class)   │  Code generation, tool call sequencing  │
+│                       │  structured output, multi-step reasoning│
+├───────────────────────┼─────────────────────────────────────────┤
+│  Light (Haiku-class)  │  Tool parameter extraction, text parsing│
+│                       │  result summarization, simple           │
+│                       │  classification, format conversion      │
+└───────────────────────┴─────────────────────────────────────────┘
+```
+
+In the orchestrator pattern these tiers map cleanly to architectural roles. The **orchestrator** plans the overall task and distributes subtasks, so a frontier model is appropriate. **Workers** execute concrete subtasks they have been assigned, so a mid-tier model is often sufficient. **Inner-loop** steps — tool result parsing, simple format conversion — can be handled by a light model.
+
+## RouteLLM: Data-Driven Routing
+
+**RouteLLM**, developed by the LMSYS research team, is an LLM routing system in which a learned classifier decides whether each query should go to a strong model or a weak model. The key finding: by routing only some queries to the strong model, it is possible to retain 95% of GPT-4-level performance while significantly reducing overall cost.
+
+The core insight is that **the router itself is a lightweight classifier** — a small model or rule-based system that looks at a query and decides "does this need the strong model, or is the weak model sufficient?" Misroutes are tolerable because fallback is possible; the router does not need to be perfect.
+
+Applied to an agent loop, a router at each iteration decides "can this step be handled by the light model?" and routes accordingly.
+
+## A Practical Routing Implementation
+
+This is a conceptual pseudocode example; actual API signatures may differ.
+
+```python
+from enum import Enum
+
+class ModelTier(Enum):
+    FRONTIER = "claude-opus-4-5"
+    MID = "claude-sonnet-4-5"
+    LIGHT = "claude-haiku-4-5"
+
+def route_iteration(
+    messages: list,
+    iteration: int,
+    tools_in_flight: bool,
+) -> ModelTier:
+    """
+    Examine the iteration's character and select the appropriate model tier.
+    - First iteration (task decomposition): frontier
+    - Only parsing tool results: light
+    - Other reasoning steps: mid
+    """
+    if iteration == 0:
+        # Initial task decomposition always uses frontier
+        return ModelTier.FRONTIER
+
+    last_message = messages[-1] if messages else {}
+    content = last_message.get("content", "")
+
+    # Simple step that only needs to parse a tool result
+    if tools_in_flight and len(content) < 500:
+        return ModelTier.LIGHT
+
+    # Long reasoning or complex judgment required
+    if len(content) > 2000 or "plan" in content.lower():
+        return ModelTier.FRONTIER
+
+    return ModelTier.MID
+
+
+def run_routed_loop(task: str, tools: list) -> str:
+    messages = [{"role": "user", "content": task}]
+    iteration = 0
+
+    while iteration < 20:
+        tools_in_flight = any(
+            m.get("role") == "tool"
+            for m in messages[-3:]
+        )
+        tier = route_iteration(messages, iteration, tools_in_flight)
+
+        response = call_model(messages, model=tier.value, tools=tools)
+
+        if response.stop_reason == "end_turn":
+            return response.content
+
+        for call in response.tool_calls:
+            result = execute_tool(call)
+            messages.append(tool_result(call.id, result))
+
+        iteration += 1
+```
+
+## Risks and Mitigations
+
+Routing has failure modes. Misrouting to a light model can degrade reasoning quality for that step, and this degradation can contaminate subsequent steps.
+
+**Risk mitigation strategies**: Always use the frontier model for the first iteration and any orchestration decision. If a light model exits without a `tool_use` stop reason or returns a response that does not match the expected format, automatically retry with the mid-tier model. Route any significant state update — revising the task plan, analyzing an error — to a higher tier.
+
+**Cost saving estimate**: If 40–60% of inner-loop steps consist of simple tasks such as tool parameter extraction or result parsing, routing those to a light model alone can meaningfully reduce total loop cost.
+
+## Closing the Section: The Observability-Evaluation-Economics Triangle
+
+The three topics in this section — tracing (9-1), evaluation (9-2 through 9-3), and economics (9-4 through 9-6) — form a single interconnected system. Without tracing you cannot tell where cost originates. Without evaluation you cannot tell whether downgrading a model preserves quality. Without understanding economics you cannot decide how much to invest in tracing and evaluation infrastructure. This triangle is the operational foundation of a production agent system.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="09-observability-eval-economics" lang="en" client:load />

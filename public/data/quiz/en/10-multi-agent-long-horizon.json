@@ -1,0 +1,146 @@
+[
+  {
+    "id": "q1",
+    "question": "What performance improvement did Anthropic's multi-agent research system achieve compared to a single Claude Opus agent?",
+    "options": [
+      "~90.2%",
+      "~50%",
+      "~150%",
+      "~200%"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 10-1 states that Anthropic's multi-agent research system achieved a 90.2% performance improvement over a single Claude Opus agent."
+  },
+  {
+    "id": "q2",
+    "question": "By approximately how many times does Anthropic's multi-agent research system use more tokens than a single chat?",
+    "options": [
+      "~3×",
+      "~5×",
+      "~15×",
+      "~50×"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 10-1 states that the multi-agent system uses approximately 15× more tokens than a single chat, and that token usage explains 80% of the performance variance."
+  },
+  {
+    "id": "q3",
+    "question": "In the Anthropic multi-agent research system experiment, what single factor explained 80% of the performance variance?",
+    "options": [
+      "Model size",
+      "Number of sub-agents",
+      "Token usage",
+      "Number of iterations"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 10-1 states that experimental results showed token usage alone could explain 80% of the performance variance — i.e., more tokens showed a high correlation with better performance."
+  },
+  {
+    "id": "q4",
+    "question": "Which correctly distinguishes Handoff from Dispatch?",
+    "options": [
+      "Handoff waits for the result and retains control; Dispatch fully transfers control",
+      "In Handoff the orchestrator fully transfers control to another agent; in Dispatch the orchestrator assigns a subtask while retaining control",
+      "The two concepts are identical",
+      "Handoff applies only to multi-agent systems; Dispatch applies only to single-agent systems"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 10-2 distinguishes the two: Handoff transfers control itself to another agent, while Dispatch is the orchestrator delegating a subtask to a worker while retaining control."
+  },
+  {
+    "id": "q5",
+    "question": "Why does error propagation worsen as the time horizon grows in long-horizon agentic loops?",
+    "options": [
+      "Because model performance degrades over time",
+      "Because more tools are needed, causing interface conflicts",
+      "Because the context window limit is reached sooner",
+      "Because early errors contaminate the input to subsequent steps, and this process repeats, causing errors to amplify cumulatively"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 10-3 explains that in long-horizon loops, errors in early steps contaminate the input to subsequent steps, and those contaminated inputs generate new errors, propagating exponentially."
+  },
+  {
+    "id": "q6",
+    "question": "What is 'orchestrator meltdown'?",
+    "options": [
+      "The orchestrator server physically crashing",
+      "The orchestrator assigning too many subtasks simultaneously",
+      "A phenomenon where the orchestrator loses coherence with its goals and its reasoning collapses during a long-running task",
+      "A phenomenon where communication with workers is completely cut off"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 10-4 explains that orchestrator meltdown is a phenomenon in long-horizon agentic tasks where the orchestrator loses coherence with its original goals due to context accumulation and its reasoning quality degrades sharply."
+  },
+  {
+    "id": "q7",
+    "question": "When does a synchronous bottleneck occur?",
+    "options": [
+      "When there are too many parallel workers for the orchestrator to manage",
+      "When the orchestrator must wait for the result of one slow worker before dispatching the next subtask",
+      "When the context window runs out and the orchestrator stops",
+      "When the model API response is delayed"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 10-1 explains that a synchronous bottleneck is a situation where the orchestrator must wait for a single slow worker's result before moving to the next step, degrading overall parallel processing efficiency."
+  },
+  {
+    "id": "q8",
+    "question": "What is the main reason for isolating worker agent context from the orchestrator?",
+    "options": [
+      "To reduce context so workers run faster",
+      "To prevent contaminated context or hallucinations in one worker from propagating to the orchestrator or other workers",
+      "To reduce costs",
+      "To prevent duplicate work across workers"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 10-1 explains that sub-agent context isolation is an important design principle that blocks errors or context rot in one worker from propagating to other agents."
+  },
+  {
+    "id": "q9",
+    "question": "What is the core reason multi-agent systems are needed beyond the limits of a single agent?",
+    "options": [
+      "Because they are always cheaper than a single agent",
+      "Because a single agent cannot use tools",
+      "Because of compliance requirements",
+      "Because they can solve problems of complexity and scale that a single agent cannot handle, through parallel subtask processing and specialization"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 10-1 explains that multi-agent systems overcome the context window and processing capacity limits of a single agent, enabling them to handle more complex and larger-scale problems through parallel processing and specialized workers."
+  },
+  {
+    "id": "q10",
+    "question": "What is the core responsibility of the orchestrator in the Orchestrator-Workers pattern?",
+    "options": [
+      "It directly executes all tools",
+      "It decomposes tasks, assigns subtasks to workers, and synthesizes results",
+      "It is responsible for context compression",
+      "It performs security checks"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 10-1 explains that the orchestrator's role is to decompose the overall task, dynamically assign subtasks to workers, collect worker results, and synthesize them into a final answer."
+  },
+  {
+    "id": "q11",
+    "question": "What is the core design element for error recovery in long-horizon agentic tasks?",
+    "options": [
+      "Using a model with a larger context window",
+      "Combining checkpointing and idempotency to safely resume from the point of failure",
+      "Limiting the number of iterations",
+      "Adding more worker agents"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 10-3 explains that for error recovery in long-horizon tasks, combining checkpointing (saving progress state) and idempotency (harmless re-execution) is needed so that a mid-run failure does not require restarting from scratch."
+  },
+  {
+    "id": "q12",
+    "question": "What is the core feature LangGraph provides for multi-agent systems?",
+    "options": [
+      "Automatic prompt optimization",
+      "State persistence across graph nodes (checkpointer) and human intervention support",
+      "Automated model fine-tuning",
+      "Automatic token cost optimization"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 10-5 explains that LangGraph's core features are defining agent workflows as graphs, persisting state via a checkpointer, and supporting human intervention with interrupt()."
+  }
+]

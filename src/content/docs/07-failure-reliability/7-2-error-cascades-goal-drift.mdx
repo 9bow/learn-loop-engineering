@@ -1,0 +1,185 @@
+---
+title: "오류 캐스케이드와 목표 표류"
+description: 초기 오류가 하류 단계로 증폭되는 캐스케이드 현상과, 루프가 진행되면서 목표 자체가 변질되는 목표 표류를 이해하고 방어합니다.
+sidebar:
+  order: 2
+learning_objectives:
+  - "오류 캐스케이드가 왜 루프에서 단일 호출보다 위험한지 설명할 수 있다"
+  - "목표 표류(goal drift)의 발생 메커니즘과 조기 탐지 방법을 이해한다"
+  - "원목표 앵커링과 도구 출력 스키마 검증을 코드로 구현할 수 있다"
+prerequisites:
+  - "7-1-infinite-doom-loops"
+estimated_minutes: 32
+references:
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+---
+
+## 오류는 혼자 죽지 않는다
+
+싱글샷 프롬프팅에서 오류는 그 한 번의 응답으로 끝난다. 그런데 루프에서 오류는 다르다. 한 이터레이션에서 발생한 오류가 도구 결과로 컨텍스트에 쌓이고, 다음 이터레이션의 판단을 오염시키며, 그 오염된 판단이 다시 오류를 만든다. 이 과정이 **오류 캐스케이드(error cascade)** 다.
+
+오류 캐스케이드를 수학적으로 생각해 보자. 각 이터레이션이 독립적으로 오류 없이 완료될 확률이 *p* 라 할 때, *n* 단계를 모두 오류 없이 통과할 확률은 *p^n* 이다. *p* = 0.95이고 *n* = 10이면 전체 성공 확률은 약 60%로 떨어진다. 단계가 길어질수록, 각 단계의 성공 확률이 낮을수록 캐스케이드 위험은 기하급수적으로 커진다.
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│               오류 캐스케이드 전파 모델                       │
+├─────────────────────────────┬───────────────────────────────┤
+│ 정상 경로                   │ 오류 경로                      │
+├─────────────────────────────┼───────────────────────────────┤
+│ 이터레이션 1: 올바른 결과   │ 이터레이션 1: 잘못된 결과      │
+│        │                   │         │                      │
+│        ▼                   │         ▼                      │
+│ 이터레이션 2: 올바른 결과   │ 이터레이션 2: 오염된 판단      │
+│        │                   │         │                      │
+│        ▼                   │         ▼                      │
+│ 이터레이션 N: 올바른 완료   │ 이터레이션 3: 더 큰 오류       │
+│                             │         │                      │
+│                             │         ▼                      │
+│                             │ 이터레이션 N: 심각한 상태 오염  │
+└─────────────────────────────┴───────────────────────────────┘
+```
+
+## 조기 완료의 함정 (premature success)
+
+오류 캐스케이드의 특히 위험한 변형은 **조기 완료(premature success)** 다. 모델이 "작업이 완료됐다"고 잘못 판단하는 것이다. Anthropic의 장기 실행 에이전트 하네스 가이드는 이 현상을 명시적으로 경고한다. 예를 들어:
+
+- 코드가 컴파일되지만 실제로는 로직이 잘못됨 → "완료"라고 선언
+- 파일이 생성됐지만 내용이 잘못됨 → "완료"라고 선언  
+- API 호출이 성공 코드를 반환했지만 의미론적으로 실패 → "완료"라고 선언
+
+이 경우 루프는 멈추지만 결과물은 틀렸다. 더 나쁜 것은 하류 단계가 이 틀린 결과를 기반으로 쌓여가는 것이다.
+
+## 도구 출력 스키마 검증
+
+오류 캐스케이드를 막는 첫 번째 방어선은 **도구 출력에 대한 스키마 검증**이다. 도구가 반환한 값이 기대한 구조와 범위를 만족하는지 컨텍스트에 추가하기 전에 확인한다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolResult:
+    tool_use_id: str
+    content: Any
+    is_error: bool = False
+
+def validated_tool_result(call, raw_result, schema):
+    """
+    도구 결과를 스키마로 검증한 뒤 반환.
+    검증 실패 시 오류 결과로 래핑하여 모델에 명시적으로 알림.
+    """
+    try:
+        schema.validate(raw_result)
+        return ToolResult(call.id, raw_result)
+    except ValidationError as e:
+        error_msg = f"도구 '{call.name}' 출력이 예상 스키마와 다릅니다: {e}"
+        return ToolResult(call.id, error_msg, is_error=True)
+```
+
+검증 실패 시 오류를 숨기지 않고 모델에게 **명시적으로 알리는 것**이 핵심이다. 모델이 오류를 알아야 다음 행동을 수정할 수 있다. 오류를 숨기거나 빈 결과로 대체하면 오히려 캐스케이드를 악화시킨다.
+
+## 목표 표류: 목적지가 바뀌는 루프
+
+오류 캐스케이드와 별개로 발생하는 또 다른 위험이 **목표 표류(goal drift)** 다. 루프가 진행되면서 모델의 실질적인 "다음 행동 기준"이 원래 목표에서 점차 멀어지는 현상이다.
+
+목표 표류의 전형적인 시나리오:
+
+1. 사용자가 "기존 API를 리팩터링하라"고 요청한다.
+2. 모델이 리팩터링 중 테스트 실패를 발견한다.
+3. 테스트 수정에 집중한다.
+4. 테스트를 수정하다 보니 API 인터페이스가 바뀐다.
+5. 변경된 인터페이스에 맞추기 위해 클라이언트 코드를 수정한다.
+6. 이터레이션 30번째 — 원래 목표인 "리팩터링"은 사라지고 완전히 다른 작업이 진행 중이다.
+
+목표 표류는 오류가 아닌 **합리적 국소 판단**의 누적으로 발생하기 때문에 더 포착하기 어렵다.
+
+```text
+목표 표류 시각화
+
+  원래 목표: [A ──────────────────────────▶ Z]
+                                               
+  실제 경로: [A ──▶ B ──▶ C' ──▶ D'' ──▶ E''']
+                         ↑
+                    국소적으로 합리적인 이탈
+```
+
+## 원목표 앵커링
+
+목표 표류를 막는 핵심 기법은 **원목표 앵커링(original goal anchoring)** 이다. 원래 목표를 루프 시작 시 **쓰기 보호된 위치**에 저장하고, 매 이터레이션마다 컨텍스트 앞부분에 재주입한다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+
+def build_messages(original_goal, history):
+    """
+    매 이터레이션마다 원목표를 첫 번째 시스템 메시지로 고정.
+    히스토리가 아무리 길어도 원목표는 항상 맨 앞에 위치.
+    """
+    goal_anchor = {
+        "role": "system",
+        "content": (
+            f"[원래 목표 - 절대 변경 불가]\n{original_goal}\n\n"
+            "현재 행동이 이 목표와 직접적으로 연결되는지 항상 확인하세요. "
+            "목표에서 벗어난다고 판단되면 즉시 중단하고 사용자에게 확인을 요청하세요."
+        )
+    }
+    return [goal_anchor] + history
+
+# 사용
+original_goal = user_request  # 루프 시작 시 한 번만 설정
+messages = [user_message(original_goal)]
+
+for iteration in range(MAX_ITER):
+    # 매 이터레이션마다 목표 앵커와 함께 메시지 구성
+    response = model.generate(
+        build_messages(original_goal, messages),
+        tools=tools
+    )
+    ...
+```
+
+루프 초기화 시 목표를 별도 변수에 저장하는 이유는 컨텍스트 내 목표가 루프가 진행되면서 점차 "묻히기" 때문이다. Lost in the Middle 현상(5-2챕터)과 동일한 메커니즘이 목표 표류를 가속한다.
+
+## 진행 중 목표 벗어남 감지
+
+보다 능동적으로는 **주기적으로 현재 방향이 원목표와 일치하는지 확인**하는 검증 단계를 루프에 삽입할 수 있다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+ALIGNMENT_CHECK_INTERVAL = 10  # 10 이터레이션마다 정렬 확인
+
+def check_goal_alignment(original_goal, recent_actions, model):
+    """별도 LLM 호출로 목표 정렬 여부를 평가."""
+    prompt = f"""
+원래 목표: {original_goal}
+
+최근 수행된 행동들:
+{recent_actions}
+
+위 행동들이 원래 목표를 달성하는 방향으로 진행 중입니까?
+'aligned' 또는 'drifted' 중 하나로만 답하고, 이유를 한 문장으로 설명하세요.
+"""
+    result = model.generate(prompt)
+    return "drifted" not in result.lower()
+
+for iteration in range(MAX_ITER):
+    ...
+    if iteration > 0 and iteration % ALIGNMENT_CHECK_INTERVAL == 0:
+        if not check_goal_alignment(original_goal, recent_actions, verifier_model):
+            raise GoalDriftError("목표 표류 감지: 인간 개입 필요")
+```
+
+## 빠른 실패의 가치
+
+오류 캐스케이드와 목표 표류 모두에서 **빠른 실패(fail fast)** 는 귀중한 원칙이다. Anthropic의 하네스 가이드는 "루프가 잘못된 경로에 있다면 조기에 중단하는 것이 수십 이터레이션 후에 중단하는 것보다 훨씬 저렴하다"고 강조한다. 오류를 감지하는 즉시 명시적으로 처리하고, 의심스러운 상황에서 계속 진행하는 것보다 중단하는 것을 기본값으로 삼아야 한다.
+
+다음 챕터에서는 루프가 실패했을 때 **어디서부터 다시 시작할 수 있는지**를 보장하는 체크포인팅과 멱등성을 다룬다.

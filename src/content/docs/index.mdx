@@ -1,0 +1,98 @@
+---
+title: Loop Engineering 완전 정복
+description: LLM 에이전트의 반복 루프를 설계·제어·검증·자기개선하는 공학, Loop Engineering 심층 학습 사이트
+template: splash
+hero:
+  tagline: 에이전트는 "툴을 루프 안에서 실행하는 LLM"이다. 그 루프 자체를 설계·제어·검증·진화시키는 공학을 12개 섹션 62개 챕터로 깊이 있게 다룹니다.
+  actions:
+    - text: 학습 시작하기
+      link: /learn-loop-engineering/01-foundations/1-1-single-shot-to-loop/
+      icon: right-arrow
+      variant: primary
+    - text: GitHub
+      link: https://github.com/9bow/learn-loop-engineering
+      icon: external
+      variant: minimal
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+## 누구를 위한 사이트인가
+
+- **에이전트를 만들어 본 개발자** — ReAct를 한 번 돌려봤지만 "왜 무한 루프에 빠지는지, 언제 멈춰야 하는지"를 체계적으로 이해하고 싶은 사람
+- **프로덕션 에이전트를 운영하는 엔지니어** — 비용 폭증, 컨텍스트 붕괴, 신뢰성 문제를 루프 설계 관점에서 해결하려는 사람
+- **AI 시스템 설계자·연구자** — 단일 호출 프롬프팅을 넘어 자율 루프, 멀티 에이전트, 자기개선 루프의 원리와 한계를 깊이 파고들려는 사람
+
+## 무엇을 배우는가
+
+각 카드를 클릭하면 해당 섹션의 첫 챕터로 이동합니다. 초급(01–02) → 중급(03–08) → 고급(09–11) → 실전(12) 순서로 배치되어 있습니다.
+
+<CardGrid>
+  <LinkCard
+    title="01. 루프 엔지니어링이란"
+    href="/learn-loop-engineering/01-foundations/1-1-single-shot-to-loop/"
+    description="싱글샷 프롬프팅의 한계, 에이전트의 정의, Workflow vs Agent, 프롬프트→컨텍스트→루프 계보, 역사"
+  />
+  <LinkCard
+    title="02. 루프의 해부학"
+    href="/learn-loop-engineering/02-loop-anatomy/2-1-observe-reason-act-evaluate/"
+    description="Observe-Reason-Act-Evaluate 사이클, CoT, Tool Use/ACI, 구조화 출력, 50줄 최소 루프"
+  />
+  <LinkCard
+    title="03. 단일 에이전트 루프 패턴"
+    href="/learn-loop-engineering/03-single-agent-patterns/3-1-react/"
+    description="ReAct, Reflexion, Plan-and-Execute, Self-Refine, Tree/Graph of Thoughts, ReWOO/LLMCompiler"
+  />
+  <LinkCard
+    title="04. 워크플로 패턴"
+    href="/learn-loop-engineering/04-workflow-patterns/4-1-prompt-chaining/"
+    description="Prompt Chaining, Routing, Parallelization, Orchestrator-Workers, Evaluator-Optimizer"
+  />
+  <LinkCard
+    title="05. 루프 안의 컨텍스트 엔지니어링"
+    href="/learn-loop-engineering/05-context-in-loop/5-1-attention-budget-context-rot/"
+    description="Attention Budget와 Context Rot, Lost in the Middle, Compaction, 루프 메모리, JIT/Fresh Context"
+  />
+  <LinkCard
+    title="06. 루프 제어와 종료"
+    href="/learn-loop-engineering/06-loop-control/6-1-stopping-conditions/"
+    description="종료 조건 분류학, Generator-Verifier 격차, LLM-as-Judge, 테스트 주도 루프, Human-in-the-Loop"
+  />
+  <LinkCard
+    title="07. 실패 모드와 신뢰성"
+    href="/learn-loop-engineering/07-failure-reliability/7-1-infinite-doom-loops/"
+    description="무한/둠 루프, 오류 캐스케이드와 목표 표류, 체크포인팅·멱등성, 재시도·크래시온리, 샌드박싱"
+  />
+  <LinkCard
+    title="08. 보안과 적대적 루프"
+    href="/learn-loop-engineering/08-security-adversarial/8-1-prompt-injection/"
+    description="프롬프트 인젝션과 컨텍스트 오염, 보상 해킹, 사전 행동 인가, 경계된 자율성과 감사"
+  />
+  <LinkCard
+    title="09. 관측성·평가·경제성"
+    href="/learn-loop-engineering/09-observability-eval-economics/9-1-tracing-otel/"
+    description="OpenTelemetry gen_ai 트레이싱, 궤적 vs 최종답 평가, SWE-bench, 이터레이션 경제학, Prompt Caching, 모델 라우팅"
+  />
+  <LinkCard
+    title="10. 멀티 에이전트와 롱호라이즌"
+    href="/learn-loop-engineering/10-multi-agent-long-horizon/10-1-orchestrator-worker-production/"
+    description="Orchestrator-Worker 프로덕션, Handoff vs Dispatch, METR 시간지평·오류복리, 멜트다운, 프레임워크 비교"
+  />
+  <LinkCard
+    title="11. 자기개선 루프와 RL 프런티어"
+    href="/learn-loop-engineering/11-self-improving-rl/11-1-loop-as-mdp/"
+    description="루프=MDP, DSPy, AlphaEvolve, Darwin Gödel Machine, GRPO/DeepSeek-R1"
+  />
+  <LinkCard
+    title="12. 실전: 루프 구축과 운영"
+    href="/learn-loop-engineering/12-building-loops/12-1-case-claude-code-codex/"
+    description="Claude Code/Codex 케이스, SWE-agent, Ralph 기법, 스펙 주도 설계, 패턴 선택, Software 3.0 미래"
+  />
+</CardGrid>
+
+## 콘텐츠 원칙
+
+- **검증 가능한 일차 출처만 인용** — arXiv, 공식 엔지니어링 블로그(Anthropic·OpenAI·DeepMind), NeurIPS/ICLR/ICML proceedings, 명망 있는 실무자 블로그. 출처 없는 통계는 쓰지 않습니다.
+- **대안 패턴은 비교표로** — ReAct vs Reflexion vs Plan-Execute처럼 trade-off가 핵심인 주제는 표로 정리합니다.
+- **모든 챕터에 시각 자료** — ASCII 다이어그램 / 비교표 / Mermaid 중 최소 하나로 루프 구조를 눈으로 보여줍니다.
+- **코드 예시는 Python 중심** — 개념 이해용 의사 코드이며, 벤더 종속 패키지명은 실제와 다를 수 있음을 명시합니다.

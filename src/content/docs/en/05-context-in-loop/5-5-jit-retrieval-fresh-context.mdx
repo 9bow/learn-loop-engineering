@@ -1,0 +1,161 @@
+---
+title: "JIT Retrieval and the Fresh Context Strategy"
+description: Loading only what is needed at the moment it is needed — comparing JIT retrieval against pre-loading, and the fresh context strategy that resets the context on every loop cycle.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Distinguish JIT retrieval from RAG pre-loading and identify when each is appropriate"
+  - "Understand how the fresh context strategy prevents context rot at the source"
+  - "Implement the pattern of keeping file paths as stable context and JIT-loading their contents"
+prerequisites:
+  - "5-3-compaction"
+estimated_minutes: 32
+references:
+  - title: "Anthropic — Effective context engineering for AI agents"
+    url: "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents"
+    accessed: "2026-06-30"
+  - title: "Geoffrey Huntley — Ralph Wiggum as a software engineer"
+    url: "https://ghuntley.com/ralph/"
+    accessed: "2026-06-30"
+  - title: "Geoffrey Huntley — everything is a ralph loop"
+    url: "https://ghuntley.com/loop/"
+    accessed: "2026-06-30"
+  - title: "OpenAI — Unrolling the Codex agent loop"
+    url: "https://openai.com/index/unrolling-the-codex-agent-loop/"
+    accessed: "2026-06-30"
+---
+
+## Two Philosophies of Information Loading
+
+There are two fundamentally different philosophies for how a loop loads the information it needs into context.
+
+**Pre-loading:** Before the loop starts, load all information expected to be useful into the context. This is the traditional RAG (Retrieval-Augmented Generation) approach — when a query arrives, retrieve relevant documents, append them to the context, and call the model.
+
+**JIT loading (Just-In-Time Loading):** Keep only **identifiers** such as file paths and document IDs in the context, and fetch the actual contents via a tool call at the moment the model determines they are needed.
+
+This distinction is not a mere implementation detail. The two approaches produce fundamentally different results for context efficiency and information freshness.
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│              Pre-loading vs JIT Loading Comparison           │
+├────────────────┬───────────────────────┬────────────────────┤
+│  Property      │  Pre-loading          │  JIT Loading       │
+├────────────────┼───────────────────────┼────────────────────┤
+│  Context size  │  Large (full load)    │  Small (ids only)  │
+│  Tool calls    │  Fewer               │  More              │
+│  Info freshness│  As of load time     │  Always current    │
+│  Failure point │  Unnecessary content │  Retrieval failure │
+│  Best for      │  Short loops,         │  Long loops,       │
+│                │  fixed documents      │  changing files    │
+└────────────────┴───────────────────────┴────────────────────┘
+```
+
+## JIT Retrieval: Identifiers as Stable Context
+
+The core idea of JIT retrieval is **storing addresses in the context rather than content**. Instead of the full file content, store the file path and fetch it with a `read_file` tool when needed. Anthropic's context engineering guide describes this as "keeping identifiers such as file paths as stable context and loading their contents at runtime."
+
+Why is this effective? A file path is a few dozen tokens; the file itself may be thousands or tens of thousands of tokens. If a loop works with ten source files, pre-loading bloats the context by tens of thousands of tokens, while JIT loading keeps only the path list — fetching each file only when it is actually being edited.
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+# Pre-loading approach (inefficient)
+def preload_context(file_list: list[str]) -> list:
+    messages = []
+    for path in file_list:
+        content = read_file(path)            # Load all files immediately
+        messages.append({
+            "role": "user",
+            "content": f"File {path}:\n{content}"  # Adds tens of thousands of tokens
+        })
+    return messages
+
+
+# JIT approach (efficient)
+def jit_context(file_list: list[str]) -> list:
+    # Only identifiers (paths) in context — a few dozen tokens
+    file_index = "\n".join(f"- {p}" for p in file_list)
+    return [{
+        "role": "system",
+        "content": (
+            f"Available files:\n{file_index}\n\n"
+            "Use the read_file tool to fetch content when you need it."
+        )
+    }]
+
+# Inside the loop the model calls read_file itself, loading only what it needs
+```
+
+## The Fresh Context Strategy
+
+The **fresh context** strategy eliminates context rot not through compaction but by **preventing it at the source**. At the start of each loop iteration (or each loop cycle), the context is reset, and only the information that must persist is re-injected from a stable external source (files).
+
+Geoffrey Huntley formalized this approach as the "Ralph" pattern, and its most extreme form illustrates the idea clearly:
+
+```bash
+while :; do
+  cat PROMPT.md | claude-code
+done
+```
+
+This single-line loop implies the following:
+
+1. **Context is reset on every iteration.** The previous loop's context does not carry over to the next.
+2. **PROMPT.md is the stable context.** All critical instructions, goals, and state live in a PROMPT.md file.
+3. **The model sees every task with fresh eyes.** Incorrect reasoning from prior iterations cannot accumulate.
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+def ralph_loop(prompt_file: str = "PROMPT.md"):
+    """
+    Fresh context strategy: reset context on every iteration.
+    Context rot has no chance to accumulate.
+    """
+    while True:
+        # Load the latest instructions from PROMPT.md (fresh context)
+        prompt = read_file(prompt_file)
+
+        # Context exists only for this iteration
+        messages = [{"role": "user", "content": prompt}]
+        response = model.generate(messages)
+
+        # Apply the result to the filesystem (code edits, note writes, etc.)
+        apply_response(response)
+
+        # Check whether we are done
+        if is_done():
+            break
+```
+
+## Prerequisites for the Fresh Context Strategy
+
+The fresh context strategy is powerful, but it requires two preconditions.
+
+**First, all important state must be persisted in external files.** When the context resets, the reasoning process of the prior iteration disappears. Any information needed by the next iteration must already be recorded in NOTES.md, PROMPT.md, or the codebase files themselves. This connects directly to the file-based persistent memory covered in Chapter 5-4.
+
+**Second, PROMPT.md (or a stable spec file) must be the single source of truth.** If the context re-injected on each iteration is inconsistent or stale, the advantage of fresh context evaporates.
+
+| Strategy | Context Rot | Information Loss Risk | Implementation Complexity |
+|----------|------------|----------------------|--------------------------|
+| Accumulating context | High | Low | Low |
+| Compaction | Medium | Medium | Medium |
+| Fresh context | None | High (if designed poorly) | Medium |
+| JIT + fresh context | None | Low (if designed well) | High |
+
+## When to Use Which Strategy
+
+The two strategies are not mutually exclusive. Production systems typically combine them.
+
+- **Single task, short loop:** Accumulating context is sufficient. Neither JIT nor fresh context is necessary.
+- **Complex coding agent:** JIT file loading combined with compaction. File content is fetched on demand; stale tool results are periodically compressed.
+- **Repetitive execution loop (Ralph pattern):** Fresh context. All state externalized into PROMPT.md and NOTES.md.
+- **Multi-agent, long-horizon research:** JIT retrieval + external vector database + sub-agent isolation.
+
+Anthropic's context engineering guide highlights the JIT pattern — "keeping identifiers such as file paths in context and loading actual content at runtime" — as a particularly effective strategy for coding agents.
+
+Context is a finite resource. How to fill it — what to pre-load, what to fetch just-in-time, and what to preserve between iterations — is one of the core design decisions a loop engineer must make.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="05-context-in-loop" lang="en" client:load />

@@ -1,0 +1,176 @@
+---
+title: "Evaluator-Optimizer: The Generate-Evaluate Loop"
+description: Learn how a dedicated Evaluator LLM scores a Generator's output against explicit criteria, provides structured feedback, and drives iterative improvement until the output passes the quality bar.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Explain how the role separation in Evaluator-Optimizer differs from Self-Refine"
+  - "Understand Goodhart's Law and the Evaluator Drift failure mode, and describe mitigation strategies"
+  - "Connect the LLM-as-Judge pattern to the Evaluator-Optimizer workflow"
+prerequisites:
+  - "4-4-orchestrator-workers"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Zheng et al. — Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena (arXiv:2306.05685)"
+    url: "https://arxiv.org/abs/2306.05685"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Writing effective tools for AI agents"
+    url: "https://www.anthropic.com/engineering/writing-tools-for-agents"
+    accessed: "2026-06-30"
+---
+
+## Why Separate Generation from Evaluation
+
+As we saw in the Self-Refine chapter, asking the same model to both generate and critique its own output leads to **sycophantic critique** — the model tends to praise its own work rather than identify real flaws. The stronger solution is **role separation**.
+
+Evaluator-Optimizer splits the work between a **Generator** and a dedicated **Evaluator**, each running as a distinct LLM call. The Evaluator scores the Generator's output against an explicit rubric and provides concrete feedback. The Generator uses that feedback to produce an improved version. This loop continues until the Evaluator issues a "pass" verdict or the maximum iteration count is reached.
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                  Evaluator-Optimizer Loop                        │
+│                                                                  │
+│   Task Input                                                     │
+│        │                                                         │
+│        ▼                                                         │
+│  ┌──────────────┐                                                │
+│  │  Generator   │ ──→ produce initial output                     │
+│  └──────┬───────┘                                                │
+│         │   output                                               │
+│         ▼                                                        │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │  Evaluator                                               │   │
+│  │  - Score against rubric criteria                         │   │
+│  │  - Generate specific improvement feedback                │   │
+│  │  - Issue pass / retry verdict                            │   │
+│  └──────────────┬─────────────────────────────────────────┘    │
+│                 │                                                │
+│    ┌────────────┴──────────────────┐                            │
+│    │ pass                          │ retry                      │
+│    ▼                               ▼                            │
+│  Final Output           ┌──────────────────────┐               │
+│                         │ Generator (revise)   │               │
+│                         │ feedback included    │               │
+│                         └──────────┬───────────┘               │
+│                                    │                            │
+│                               ▲────┘ back to Evaluator          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+## Key Difference from Self-Refine
+
+| Dimension | Self-Refine | Evaluator-Optimizer |
+|-----------|-------------|---------------------|
+| Who evaluates | The generating model itself | A separate Evaluator LLM |
+| Evaluation criteria | Implicit (model's internal judgment) | Explicit rubric |
+| Independence | None (self-critique) | Yes (external perspective) |
+| Sycophancy bias | High | Low (controllable by design) |
+| Complexity | Low | High (two LLMs to coordinate) |
+
+Providing the Evaluator with an **explicit rubric** is the critical design decision. "Is this translation good?" is far weaker than "Score each of the following on a 1–5 scale: accuracy, fluency, and terminology consistency." The more specific the rubric, the higher the evaluation quality.
+
+## Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class EvaluationResult:
+    passed: bool
+    score: float            # 0.0 to 1.0
+    feedback: str
+    criteria_scores: dict[str, float]
+
+def evaluator_optimizer(
+    generator_model,
+    evaluator_model,
+    task: str,
+    rubric: str,
+    pass_threshold: float = 0.85,
+    max_iterations: int = 4,
+) -> str:
+    """
+    Generator produces output; Evaluator scores and provides feedback.
+    Loop repeats until the pass threshold is met.
+    """
+    feedback_history = []
+    output = None
+
+    for iteration in range(max_iterations):
+        # ① Generate
+        gen_context = task
+        if feedback_history:
+            previous_feedback = "\n".join(
+                f"Attempt {i+1} feedback: {f}"
+                for i, f in enumerate(feedback_history)
+            )
+            gen_context = (
+                f"{task}\n\nFeedback from previous attempts:\n{previous_feedback}\n\n"
+                "Produce an improved result incorporating this feedback."
+            )
+
+        gen_result = generator_model.generate(
+            [{"role": "user", "content": gen_context}]
+        )
+        output = gen_result.text
+
+        # ② Evaluate
+        eval_prompt = (
+            f"Task: {task}\n\n"
+            f"Evaluation rubric:\n{rubric}\n\n"
+            f"Output to evaluate:\n{output}\n\n"
+            "Return scores per criterion (0–1), an overall score, "
+            "and specific feedback as JSON:\n"
+            '{"passed": true/false, "score": 0.0–1.0, '
+            '"feedback": "...", "criteria_scores": {...}}'
+        )
+        eval_result = evaluator_model.generate(
+            [{"role": "user", "content": eval_prompt}],
+            temperature=0.0,  # evaluation should be deterministic
+        )
+        evaluation = parse_evaluation(eval_result.text)
+
+        # ③ Pass verdict
+        if evaluation.score >= pass_threshold:
+            break
+
+        feedback_history.append(evaluation.feedback)
+
+    return output
+```
+
+## Goodhart's Law and Evaluator Drift
+
+The most dangerous failure mode of Evaluator-Optimizer is **Goodhart's Law**: "When a measure becomes a target, it ceases to be a good measure." If the Generator is repeatedly optimized against the Evaluator's rubric, Evaluator scores may climb while **actual quality stagnates or degrades** — a phenomenon called **Evaluator Drift**.
+
+In practice this means the Generator learns to "game" the Evaluator. If the Evaluator uses response length as a proxy for quality, the Generator produces verbose output devoid of substance.
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│           Evaluator Drift Mitigation Strategies                │
+├──────────────────────────┬─────────────────────────────────────┤
+│ Strategy                 │ Description                         │
+├──────────────────────────┼─────────────────────────────────────┤
+│ Multi-dimensional rubric │ Score multiple axes instead of one  │
+│ Reference anchoring      │ Compare against a known-good answer │
+│ Human sampling review    │ Randomly inspect N% with human eyes │
+│ Evaluator diversity      │ Ensemble of multiple Evaluators     │
+│ Iteration cap            │ Prevent over-optimization           │
+└──────────────────────────┴─────────────────────────────────────┘
+```
+
+## Connection to LLM-as-Judge
+
+The Evaluator in this pattern is a workflow-level application of the **LLM-as-Judge** approach. Zheng et al. (NeurIPS 2023) found that GPT-4 as a judge agrees with human preferences **more than 80% of the time** — comparable to the inter-human agreement rate. That said, LLM judges carry their own biases: position bias (favoring whichever answer appears first), verbosity bias (favoring longer answers), and self-enhancement bias (favoring their own stylistic patterns). Mitigation techniques include position swapping (evaluate the pair in both orders), CoT evaluation (write reasoning before scoring), and reference-based evaluation.
+
+## Conditions Where Evaluator-Optimizer Shines
+
+This pattern is most effective when three conditions hold simultaneously. First, there must be **measurable** quality criteria — clear, explicit rubric dimensions. Second, the task must be one where **iterative revision genuinely improves** the output (tasks that require a completely different strategy rather than refinement will not benefit from repeated retries). Third, **quality must matter more than latency** — every iteration adds a Generator call and an Evaluator call. Representative use cases that satisfy all three: technical documentation, translation quality assurance, automated code review, and content safety screening.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="04-workflow-patterns" lang="en" client:load />

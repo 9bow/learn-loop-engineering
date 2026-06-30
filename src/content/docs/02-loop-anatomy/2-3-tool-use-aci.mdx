@@ -1,0 +1,179 @@
+---
+title: "Tool Use와 Agent-Computer Interface"
+description: 도구 사용(Tool Use)의 프로토콜을 이해하고, 에이전트가 컴퓨터와 상호작용하는 인터페이스(ACI)를 잘 설계하기 위한 원칙을 배웁니다.
+sidebar:
+  order: 3
+learning_objectives:
+  - "tool_use/tool_result 프로토콜과 stop_reason의 역할을 설명할 수 있다"
+  - "에이전트-컴퓨터 인터페이스(ACI) 설계의 핵심 원칙을 세 가지 이상 적용할 수 있다"
+  - "좋은 도구 설계와 나쁜 도구 설계를 구분하는 기준을 이해한다"
+prerequisites:
+  - "2-1-observe-reason-act-evaluate"
+estimated_minutes: 32
+references:
+  - title: "Anthropic — Tool use documentation"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/tool-use"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Writing effective tools for AI agents"
+    url: "https://www.anthropic.com/engineering/writing-tools-for-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## 도구가 루프를 "진짜"로 만든다
+
+에이전틱 루프가 단순한 텍스트 생성과 다른 이유는 도구(tool)다. 도구 없는 루프는 모델이 이전 응답을 보고 다음 응답을 생성하는 자기대화에 불과하다. 도구가 있어야 파일을 읽고, 코드를 실행하고, 웹을 검색하고, 데이터베이스를 쿼리하는 **실제 행동**이 가능해진다.
+
+도구 호출 메커니즘은 표준화된 프로토콜 위에서 작동한다. 모델이 도구를 사용하고 싶다고 선언하면, 하네스(harness)가 그 도구를 실행하고 결과를 다시 모델에게 전달한다. 이 프로토콜의 세부를 이해하는 것이 신뢰성 있는 루프를 만드는 출발점이다.
+
+## tool_use / tool_result 프로토콜
+
+도구 호출은 메시지 히스토리 안에서 특정 역할(role)을 가진 메시지들로 표현된다.
+
+```text
+도구 호출 프로토콜 흐름
+───────────────────────────────────────────────────────────
+[user]      "foo.py 파일을 읽고 버그를 찾아라"
+                          │
+[assistant] stop_reason: "tool_use"
+            tool_calls: [{
+              id: "call_01",
+              name: "read_file",
+              input: {"path": "foo.py"}
+            }]
+                          │
+            ┌─ 하네스가 read_file("foo.py") 실행 ─┐
+            └─────────────────────────────────────┘
+                          │
+[tool]      tool_use_id: "call_01"
+            content: "def foo():\n    return lst[10]  # IndexError"
+                          │
+[assistant] stop_reason: "end_turn"
+            text: "5번째 줄에 인덱스 오류가 있습니다. lst 크기를
+                   먼저 확인하거나 예외 처리가 필요합니다."
+───────────────────────────────────────────────────────────
+```
+
+**stop_reason**이 핵심 신호다. `"tool_use"`는 모델이 도구를 실행하고 계속 작업하겠다는 뜻이고, `"end_turn"`은 더 이상 도구가 필요 없고 작업이 완료됐다는 선언이다. 루프의 분기 로직은 이 두 값을 기준으로 동작한다.
+
+## 에이전트-컴퓨터 인터페이스(ACI) 설계 원칙
+
+사람과 컴퓨터 간 상호작용을 설계하는 HCI(Human-Computer Interface)처럼, 에이전트와 컴퓨터 간 인터페이스를 설계하는 것을 **ACI(Agent-Computer Interface)** 라고 부른다. Anthropic의 실전 경험에서 나온 ACI 설계 원칙들을 살펴보자.
+
+### 원칙 1: 명확한 파라미터 이름과 설명
+
+모델은 도구를 어떻게 사용해야 하는지 도구 정의 텍스트에서 배운다. 파라미터 이름이 모호하면 모델이 잘못된 값을 전달한다.
+
+```text
+나쁜 예                          좋은 예
+───────────────────────────────────────────────────────────
+name: "process"                 name: "search_files"
+params:                         params:
+  - x: string                     - directory: string
+  - y: boolean                      (탐색할 디렉터리 절대 경로)
+                                  - pattern: string
+                                    (파일명 glob 패턴, 예: "*.py")
+                                  - recursive: boolean
+                                    (하위 디렉터리 포함 여부)
+───────────────────────────────────────────────────────────
+```
+
+### 원칙 2: 적은 수의 응집된 도구
+
+도구가 많을수록 모델이 어떤 도구를 써야 할지 혼란스럽고, 잘못된 도구를 선택할 확률이 높아진다. 비슷한 기능은 하나의 도구로 합치고, 도구마다 단일 책임을 부여하는 것이 좋다.
+
+| 피해야 할 패턴 | 권장 패턴 |
+|---|---|
+| read_python_file, read_json_file, read_text_file | read_file(path, encoding?) |
+| search_by_name, search_by_content, search_by_date | search(query, field?) |
+| create_dir, make_directory, mkdir | create_directory(path) |
+
+### 원칙 3: 행동 가능한 에러 메시지
+
+도구가 실패할 때 "에러 발생"이라는 메시지는 모델에게 아무런 정보를 주지 않는다. 모델이 다음 이터레이션에서 올바른 행동을 취할 수 있도록 에러 메시지가 **구체적이고 행동 가능**해야 한다.
+
+```text
+나쁜 에러 메시지:
+  "파일을 열 수 없습니다."
+
+좋은 에러 메시지:
+  "파일을 열 수 없습니다: /home/user/foo.py
+   원인: 파일이 존재하지 않습니다.
+   제안: 먼저 list_files('/home/user/')로 존재하는 파일을
+         확인하세요."
+```
+
+## 도구 정의를 코드로 작성하기
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+# 도구 정의: 모델에게 전달되는 스키마
+tools = [
+    {
+        "name": "read_file",
+        "description": "지정한 경로의 파일 내용을 읽어 반환합니다.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "읽을 파일의 절대 경로 (예: /workspace/main.py)"
+                },
+                "encoding": {
+                    "type": "string",
+                    "description": "파일 인코딩 (기본값: utf-8)",
+                    "default": "utf-8"
+                }
+            },
+            "required": ["path"]
+        }
+    },
+    {
+        "name": "run_tests",
+        "description": "pytest를 실행하고 테스트 결과를 반환합니다.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "test_path": {
+                    "type": "string",
+                    "description": "테스트 파일 또는 디렉터리 경로"
+                }
+            },
+            "required": ["test_path"]
+        }
+    }
+]
+
+# 도구 실행기: 모델의 tool_call을 실제 함수로 매핑
+def execute_tool(tool_call: dict) -> str:
+    name = tool_call["name"]
+    inputs = tool_call["input"]
+
+    if name == "read_file":
+        try:
+            with open(inputs["path"], encoding=inputs.get("encoding", "utf-8")) as f:
+                return f.read()
+        except FileNotFoundError:
+            return (
+                f"파일을 찾을 수 없습니다: {inputs['path']}\n"
+                "list_files() 도구로 존재하는 파일 목록을 확인하세요."
+            )
+    elif name == "run_tests":
+        import subprocess
+        result = subprocess.run(
+            ["python", "-m", "pytest", inputs["test_path"], "-v"],
+            capture_output=True, text=True
+        )
+        return result.stdout + result.stderr
+    else:
+        return f"알 수 없는 도구: {name}"
+```
+
+## MCP: 도구 프로토콜의 표준화
+
+Anthropic이 제안한 **Model Context Protocol(MCP)** 은 도구 인터페이스를 표준화하려는 시도다. MCP는 모델과 외부 도구 서버 사이의 공통 언어를 정의함으로써, 어떤 모델이든 MCP를 지원하는 도구와 호환되도록 만들고자 한다. ACI 설계 원칙이 잘 구현된 MCP 서버는 에이전틱 루프에서 플러그인처럼 교체 가능한 도구를 제공한다.
+
+다음 챕터에서는 도구 결과를 어떤 **구조화된 형식**으로 받아서 루프 상태를 관리하는지, 그 설계 패턴을 살펴본다.

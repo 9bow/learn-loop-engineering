@@ -1,0 +1,119 @@
+---
+title: "From Prompt Engineering to Loop Engineering"
+description: Trace the lineage from prompt engineering through context engineering to loop engineering, and understand how each layer absorbs and extends the one beneath it.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Define prompt, context, and loop engineering and explain the order in which they emerged"
+  - "Understand how each layer overcomes the limits of the one below"
+  - "Describe how loop engineering changes the role of the developer"
+prerequisites:
+  - "1-3-workflow-vs-agent"
+estimated_minutes: 30
+references:
+  - title: "Simon Willison — Context engineering"
+    url: "https://simonwillison.net/2025/Jun/27/context-engineering/"
+    accessed: "2026-06-30"
+  - title: "Addy Osmani — Loop Engineering"
+    url: "https://addyosmani.com/blog/loop-engineering/"
+    accessed: "2026-06-30"
+  - title: "Andrej Karpathy / swyx — Software 3.0"
+    url: "https://www.latent.space/p/s3"
+    accessed: "2026-06-30"
+---
+
+## Practice First, Name Later
+
+In technology, new practices usually spread before they have names. Engineers who were carefully tuning their prompts only later learned they were doing "prompt engineering." Teams that were meticulously managing context windows only later recognized a coherent discipline. We are now at the moment when a third name is consolidating: **Loop Engineering**.
+
+These three layers did not replace one another — they accumulated. Each higher layer contains the one below it and addresses a wider set of problems.
+
+## Layer 1: Prompt Engineering (2022–2024)
+
+The core skill in early LLM work was **crafting the input text carefully**. Assigning a role ("You are an expert translator"), inserting few-shot examples, and guiding chain-of-thought reasoning became the standard toolkit. Engineering in this era took place entirely within the narrow space of a single prompt.
+
+The limits of prompt engineering became paradoxically visible as models grew more capable. As models could handle larger contexts and began connecting to external tools, *what to put in context and what to leave out* mattered far more than exactly how a single sentence was worded.
+
+## Layer 2: Context Engineering (2025)
+
+Shopify CEO Tobi Lütke and Andrej Karpathy were among the first to give this discipline a name. Simon Willison defined context engineering in June 2025 as: *"the skill of constructing the context a model needs to perform a task correctly."* This goes beyond writing prompts — it is about which information to include, in what order, and at which position.
+
+Context engineering treats the **context window as a resource to be optimally allocated**. Too much information causes the model to miss critical details. Too little causes hallucinations to fill the gaps. Deciding what tool results to compress, which memory to inject, and which history to discard became core competencies.
+
+## Layer 3: Loop Engineering (2025–)
+
+Addy Osmani coined **loop engineering** as a distinct layer in 2025. The term captures the recognition that filling one context window well is no longer the primary challenge — **designing the entire cycle of repeated model calls** is.
+
+Boris Cherny, the lead of Claude Code, articulates the shift sharply: *"I no longer prompt Claude. I run loops and let it figure out what to do. My job is to write the loop."* (Source: Addy Osmani, Loop Engineering)
+
+Loop engineering's questions reach beyond a single prompt or a single context window:
+- When should the loop stop?
+- What should be remembered between iterations — and what discarded?
+- How do you prevent a failure in one iteration from poisoning the next?
+- How do you control cost and latency across an unbounded number of calls?
+
+## The Containment Relationship
+
+```text
+┌────────────────────────────────────────────────────────┐
+│              Loop Engineering                          │
+│  cycle design · termination · memory · cost control   │
+│                                                        │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │           Context Engineering                    │  │
+│  │  window composition · priorities · compaction    │  │
+│  │                                                  │  │
+│  │  ┌────────────────────────────────────────────┐  │  │
+│  │  │        Prompt Engineering                  │  │  │
+│  │  │  roles · few-shot · CoT · output format    │  │  │
+│  │  └────────────────────────────────────────────┘  │  │
+│  └──────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────┘
+```
+
+The key point is that higher layers **absorb** lower ones. A loop engineer decides how to compose each context window and also which prompt strategy to use inside each iteration. The three layers are not alternatives — they are **cumulative**.
+
+## How the Developer's Role Changes
+
+The direction this lineage points is clear. The developer's role is shifting from *instructing the model* to *designing the system the model operates inside*. In Andrej Karpathy's Software 3.0 framing, LLMs are a new computing substrate, and the loop is the program that runs on that substrate.
+
+This is illustrative pseudocode; actual API signatures differ.
+
+```python
+# Prompt engineering: write input text precisely
+prompt = """You are an experienced code reviewer.
+Identify bugs in the following Python code and suggest fixes.
+
+Code:
+{code}
+
+Requirements:
+1. Name the bug precisely
+2. Provide corrected code
+"""
+
+# Context engineering: design what goes into the window
+context = build_context(
+    system=system_prompt,        # stable prefix (cache target)
+    recent_files=load_files(),   # only the relevant recent files
+    error_log=last_errors(),     # most recent error output
+    # old history omitted
+)
+
+# Loop engineering: design the iteration cycle and stopping condition
+def engineering_loop(task: str) -> str:
+    state = initialize_state(task)
+    for iteration in range(MAX_ITERATIONS):
+        context = build_context(state)         # context engineering
+        response = model.generate(context)     # prompt engineering applied
+        state = update_state(state, response)  # state management
+        if is_complete(state):
+            break
+    return state.result
+```
+
+A loop engineer makes decisions at all three levels simultaneously. The rest of the chapters on this site work through those decisions systematically.
+
+## The Road Ahead
+
+The next chapter traces the *history* of how the loop idea evolved: from the ReAct paper through the failures of AutoGPT, Anthropic's Building Effective Agents guide, and the Ralph technique — a compressed but dense chronicle of agentic loop development.

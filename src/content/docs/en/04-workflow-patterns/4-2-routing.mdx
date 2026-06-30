@@ -1,0 +1,141 @@
+---
+title: "Routing: Classification-Based Branching"
+description: Learn how a classifier LLM analyzes input and routes it to the most suitable specialized pipeline, along with the misclassification failure mode and how to mitigate it.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Describe the classifier-plus-specialized-pipeline structure of the Routing pattern"
+  - "Understand the misclassification failure mode and its mitigation strategies"
+  - "Compare hard routing and soft routing, and identify when to use each"
+prerequisites:
+  - "4-1-prompt-chaining"
+estimated_minutes: 26
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "RouteLLM — Learning to Route in LLMs (LMSYS)"
+    url: "https://lmsys.org/blog/2024-07-01-routellm/"
+    accessed: "2026-06-30"
+---
+
+## No Single Pipeline Can Do Everything Well
+
+Consider a customer-support system. Billing questions, technical bugs, general information requests, and cancellation requests all arrive through the same channel. Handling all four types with one prompt means stuffing specialized knowledge, tone, and procedures for each type into one giant prompt. The longer the prompt grows, the more focus diffuses — and optimizations for rare edge cases start interfering with common-case responses.
+
+Routing solves this through **separation and specialization**. A classifier first analyzes the input to determine the appropriate category, then each category is handled by a dedicated pipeline optimized for that type.
+
+## Router + Specialized Pipelines
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                    Routing Pattern Flow                          │
+│                                                                  │
+│   User Input                                                     │
+│        │                                                         │
+│        ▼                                                         │
+│   ┌──────────────┐                                               │
+│   │   Classifier │  "Which category does this request belong to?"│
+│   │   (Router)   │  (LLM or lightweight classification model)    │
+│   └──────┬───────┘                                               │
+│          │                                                       │
+│    ┌─────┴──────┬────────────┬───────────────┐                  │
+│    ▼            ▼            ▼               ▼                  │
+│ [Billing]   [Technical]  [General]     [Cancellation]           │
+│ Pipeline    Pipeline     Pipeline      Pipeline                  │
+│    │            │            │               │                  │
+│    ▼            ▼            ▼               ▼                  │
+│  DB lookup   debug flow   FAQ search   cancellation flow        │
+│    │            │            │               │                  │
+│    └─────────────┴────────────┴───────────────┘                  │
+│                              ▼                                   │
+│                        Final Response                            │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+The classifier does not have to be an LLM. For simple cases, keyword matching or rule-based classifiers are sufficient. For complex or ambiguous inputs, a lightweight LLM (such as Haiku) provides more accurate classification. The key requirement is that the classifier be **fast and cheap** — using a frontier model as the router eliminates the cost benefit of routing entirely.
+
+## Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+from typing import Callable
+
+# Specialized pipeline per category
+PIPELINES: dict[str, Callable[[str], str]] = {
+    "billing": handle_billing_request,
+    "technical": handle_technical_request,
+    "general": handle_general_inquiry,
+    "cancellation": handle_cancellation_request,
+}
+
+CATEGORIES = list(PIPELINES.keys())
+
+def route_request(model, user_input: str, confidence_threshold: float = 0.8) -> str:
+    """
+    Classify the request, then dispatch to the matching pipeline.
+    """
+    # 1. Classify (recommend a lightweight model)
+    classify_prompt = (
+        f"Classify the following customer request.\n"
+        f"Categories: {', '.join(CATEGORIES)}\n\n"
+        f"Request: {user_input}\n\n"
+        'Respond as JSON: {"category": "...", "confidence": 0.0–1.0}'
+    )
+    classify_result = model.generate(
+        [{"role": "user", "content": classify_prompt}],
+        temperature=0.0,  # classification should be deterministic
+    )
+    parsed = parse_json(classify_result.text)
+    category = parsed.get("category", "general")
+    confidence = parsed.get("confidence", 0.0)
+
+    # 2. Fall back if confidence is below threshold
+    if confidence < confidence_threshold:
+        category = "general"  # or escalate to a human
+
+    # 3. Execute the matching pipeline
+    pipeline_fn = PIPELINES.get(category, PIPELINES["general"])
+    return pipeline_fn(user_input)
+```
+
+## Misclassification: The Core Failure Mode
+
+The most critical weakness of the Routing pattern is **misclassification**. When the classifier errs, the wrong pipeline runs and its output is delivered to the user. The deeper problem is that misclassification happens **silently**. A technical-support question routed to the billing pipeline may receive a response that is "reasonably coherent within the billing domain" — and the error goes unnoticed.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│       Strategies for Mitigating Misclassification Risk       │
+├──────────────────┬───────────────────────────────────────────┤
+│ Strategy         │ Description                               │
+├──────────────────┼───────────────────────────────────────────┤
+│ Confidence       │ Fall back or escalate when certainty is   │
+│ threshold        │ below a set level                         │
+├──────────────────┼───────────────────────────────────────────┤
+│ Fallback category│ "Other" category as a safety net          │
+├──────────────────┼───────────────────────────────────────────┤
+│ Prediction       │ Log every classification decision;        │
+│ logging          │ track error patterns                      │
+├──────────────────┼───────────────────────────────────────────┤
+│ Human review     │ Randomly sample N% for human inspection   │
+│ sampling         │                                           │
+├──────────────────┼───────────────────────────────────────────┤
+│ Multi-classifier │ Escalate when two classifiers disagree    │
+│ ensemble         │                                           │
+└──────────────────┴───────────────────────────────────────────┘
+```
+
+## Hard Routing vs. Soft Routing
+
+**Hard routing** sends input to exactly one pipeline. Decision-making is simple and overhead is minimal, but the misclassification risk remains unmitigated.
+
+**Soft routing** sends input to the top-K categories and either aggregates results or lets a human choose. Misclassification resilience increases, but cost scales by K.
+
+In practice, a **confidence-based hybrid** is common: apply hard routing when confidence is high, switch to soft routing or human escalation when confidence is low.
+
+## RouteLLM: Routing as Model Selection
+
+The routing idea applies not only to pipeline branching but also to **model selection**. RouteLLM (LMSYS, 2024) judges query complexity and routes simple queries to cheaper models and complex ones to frontier models. This approach reportedly retains 95% of GPT-4-level performance while substantially reducing cost. The same principle is explored in more depth in chapter 9-6-model-routing.
+
+The next chapter covers Parallelization — rather than branching to a single destination, it runs **multiple tasks simultaneously**.

@@ -1,0 +1,149 @@
+---
+title: "LLM-as-Judge: 자동 검증 루프"
+description: LLM을 심판으로 활용해 다른 LLM의 출력을 자동 평가하는 기법 — 채점 방식, 편향의 종류와 완화법, 그리고 에이전틱 루프 안에서의 활용을 살펴봅니다.
+sidebar:
+  order: 3
+learning_objectives:
+  - "LLM-as-Judge의 세 가지 채점 방식(단일/쌍별/레퍼런스 기반)을 구분하고 적합한 상황을 설명할 수 있다"
+  - "위치 편향, 장황함 편향, 자기 강화 편향의 원인과 완화 방법을 적용할 수 있다"
+  - "LLM-as-Judge를 에이전틱 루프의 검증 스텝으로 통합하는 패턴을 구현할 수 있다"
+prerequisites:
+  - "6-2-generator-verifier-gap"
+estimated_minutes: 30
+references:
+  - title: "Zheng et al. — Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena (arXiv:2306.05685)"
+    url: "https://arxiv.org/abs/2306.05685"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## LLM이 LLM을 심판하다
+
+앞 챕터에서 Generator-Verifier 격차를 살펴봤다. 테스트 러너나 규칙 기반 검사가 적용되지 않는 언어 태스크(요약 품질, 응답 적절성, 추론의 타당성 등)에서는 어떻게 자동 검증을 구현할까? 이 질문에 대한 실용적 답이 **LLM-as-Judge(LLM을 심판으로 활용하기)**다.
+
+Zheng et al.이 NeurIPS 2023에 발표한 연구(arXiv:2306.05685)는 GPT-4를 심판으로 활용해 MT-Bench와 Chatbot Arena에서 LLM 응답을 평가했다. 핵심 발견은 다음과 같다. **GPT-4 심판이 인간 선호 판단과 80% 이상의 일치율을 보였으며, 이는 인간 평가자 간 일치율 수준에 해당한다.** 이 결과는 LLM이 일정 수준의 언어적 판단에서 인간 평가를 대체할 수 있음을 실증했다.
+
+## 세 가지 채점 방식
+
+LLM-as-Judge는 평가 목적에 따라 세 가지 방식으로 구분된다.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                LLM-as-Judge 채점 방식 비교                     │
+├─────────────────┬───────────────┬───────────────────────────┤
+│  방식           │  입력         │  적합한 상황              │
+├─────────────────┼───────────────┼───────────────────────────┤
+│ 단일(Single)    │  응답 A 하나  │  절대 품질 평가           │
+│                │  + 평가 기준  │  예: "이 요약이 충분한가?" │
+├─────────────────┼───────────────┼───────────────────────────┤
+│ 쌍별(Pairwise) │  응답 A vs B  │  상대적 우열 비교         │
+│                │  + 평가 기준  │  예: "어느 쪽이 더 정확?" │
+├─────────────────┼───────────────┼───────────────────────────┤
+│ 레퍼런스 기반  │  응답 A       │  정답이 알려진 경우       │
+│ (Reference)   │  + 정답(Gold) │  예: "코드가 명세에 맞나?" │
+└─────────────────┴───────────────┴───────────────────────────┘
+```
+
+에이전틱 루프 검증에는 **레퍼런스 기반** 또는 **단일 채점**이 가장 많이 쓰인다. 원래 태스크 명세를 레퍼런스로 놓고, 에이전트의 최종 출력이 그 명세를 얼마나 만족하는지 다른 LLM에게 평가하도록 한다.
+
+## 편향의 종류와 완화법
+
+LLM-as-Judge가 완벽하지 않은 이유는 여러 편향이 내재되어 있기 때문이다. Zheng et al. 논문은 세 가지 주요 편향을 식별했다.
+
+**위치 편향(Position Bias).** 쌍별 비교에서 심판 LLM이 첫 번째로 제시된 응답을 선호하는 경향이 있다. A와 B를 순서대로 보여주면 A를 선택하는 비율이 통계적으로 높아진다.
+
+**장황함 편향(Verbosity Bias).** 더 긴 응답이 더 좋은 응답으로 인식되는 경향이다. 실제로는 간결하고 정확한 답이 우수할 수 있지만, 심판이 양을 품질과 혼동하는 경우다.
+
+**자기 강화 편향(Self-enhancement Bias).** 동일 계열 모델이 심판일 때, 같은 계열 모델이 생성한 응답을 선호하는 경향이다. GPT-4가 GPT 계열 응답을, Claude가 Claude 계열 응답을 선호할 수 있다.
+
+| 편향 | 원인 | 완화 방법 |
+|------|------|----------|
+| 위치 편향 | 제시 순서 효과 | A→B, B→A 두 번 평가 후 평균 |
+| 장황함 편향 | 길이=품질 혼동 | 명시적 "길이 무관" 지시 |
+| 자기 강화 편향 | 계열 모델 친숙도 | 다른 계열 심판 모델 사용 |
+| 일반 프레이밍 | 모호한 기준 | CoT 평가 요청, 세부 루브릭 제공 |
+
+## 에이전틱 루프에 LLM-as-Judge 통합하기
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+JUDGE_SYSTEM_PROMPT = """
+당신은 공정한 평가자입니다. 주어진 작업 명세와 에이전트의 출력물을 비교해
+다음 기준으로 평가하세요:
+1. 정확성: 출력이 사실적으로 맞는가?
+2. 완전성: 모든 요구사항을 충족하는가?
+3. 품질: 출력 형식과 표현이 적절한가?
+
+평가 결과를 JSON으로 반환하세요:
+{"passed": true/false, "score": 0-10, "reason": "구체적 이유"}
+"""
+
+def llm_judge(task_spec: str, agent_output: str,
+              swap_positions: bool = True) -> dict:
+    """
+    위치 편향 완화를 위해 스왑 평가 포함.
+    """
+    def single_eval(spec, output) -> dict:
+        response = judge_model.generate([
+            {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+            {"role": "user", "content": f"작업 명세:\n{spec}\n\n에이전트 출력:\n{output}"}
+        ])
+        return parse_json(response.content)
+
+    result1 = single_eval(task_spec, agent_output)
+
+    if swap_positions:
+        # 위치 스왑 후 재평가 (편향 완화)
+        result2 = single_eval(agent_output, task_spec)
+        # 두 평가의 score 평균을 최종 점수로
+        avg_score = (result1["score"] + result2["score"]) / 2
+        passed = avg_score >= 7.0  # 임계치
+        return {"passed": passed, "score": avg_score, "reason": result1["reason"]}
+
+    return result1
+
+
+def run_loop_with_llm_judge(task: str, tools: list, max_iters: int = 20):
+    messages = [{"role": "user", "content": task}]
+
+    for _ in range(max_iters):
+        response = model.generate(messages, tools=tools)
+
+        if response.stop_reason == "end_turn":
+            # LLM-as-Judge로 검증
+            verdict = llm_judge(task, response.content)
+
+            if verdict["passed"]:
+                return {"status": "success", "result": response.content,
+                        "score": verdict["score"]}
+            else:
+                # 심판 피드백을 컨텍스트에 추가해 재시도
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"평가 결과: 불합격 (점수 {verdict['score']}/10)\n"
+                        f"이유: {verdict['reason']}\n"
+                        "위 피드백을 반영해 출력을 개선하세요."
+                    )
+                })
+                continue
+
+        for call in response.tool_calls:
+            result = run_tool(call)
+            messages.append(tool_result(result))
+
+    return {"status": "max_iters_exceeded"}
+```
+
+## LLM-as-Judge의 적절한 사용처와 한계
+
+LLM-as-Judge는 인간 평가가 비용·시간상 불가능한 대규모 자동 평가에서 강점을 보인다. 에이전틱 루프에서는 특히 다음 상황에 유용하다.
+
+- 요약, 번역, 코드 설명 같은 **언어 품질 평가**
+- 여러 계획 옵션 중 **최선안 선택**
+- 에이전트의 최종 응답이 초기 명세에 **부합하는지 확인**
+
+그러나 한계도 명확하다. 80% 인간 일치율은 인상적이지만, **20%는 틀린다**는 의미이기도 하다. 수학 계산 오류, 코드 실행 결과 같은 결정론적 검증이 가능한 영역에서는 LLM-as-Judge 대신 테스트 러너를 쓰는 것이 훨씬 신뢰할 만하다. LLM-as-Judge는 자동 검증 도구 중 하나이지, 유일한 답이 아니다.

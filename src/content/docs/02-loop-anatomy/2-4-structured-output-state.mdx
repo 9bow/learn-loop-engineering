@@ -1,0 +1,164 @@
+---
+title: "구조화 출력과 루프 상태 관리"
+description: JSON Schema 기반 구조화 출력이 루프의 신뢰성을 어떻게 높이는지, 그리고 여러 이터레이션에 걸쳐 에이전트 상태를 어떻게 관리해야 하는지 배웁니다.
+sidebar:
+  order: 4
+learning_objectives:
+  - "구조화 출력(JSON Schema)이 왜 자유 텍스트 파싱보다 신뢰성이 높은지 설명할 수 있다"
+  - "루프 상태(state)의 구성 요소와 이터레이션 간 상태 전달 방식을 이해한다"
+  - "에이전트 간 통신에서 구조화 출력이 어떤 역할을 하는지 설명할 수 있다"
+prerequisites:
+  - "2-3-tool-use-aci"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Tool use documentation"
+    url: "https://docs.anthropic.com/en/docs/build-with-claude/tool-use"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## 자유 텍스트 파싱의 위험
+
+에이전틱 루프의 각 단계에서 모델의 출력을 다음 단계로 전달할 때, 출력이 자유 텍스트라면 파싱이 필요하다. 그런데 자유 텍스트 파싱은 취약하다. 모델이 예상과 다른 형식으로 출력하면 파싱이 실패하고, 그 실패가 루프 전체를 멈추거나 잘못된 방향으로 이끌 수 있다.
+
+```text
+자유 텍스트 파싱의 실패 시나리오
+───────────────────────────────────────────────────────────
+기대 출력:
+  "결과: 성공, 파일: /tmp/output.txt, 줄 수: 42"
+
+실제 출력 (모델이 다르게 표현할 수 있음):
+  "파일 /tmp/output.txt에 42줄을 성공적으로 작성했습니다."
+  "작업 완료. output.txt (42 lines)"
+  "✅ Done → /tmp/output.txt | lines=42"
+
+파싱 코드가 첫 번째 형식만 처리한다면 → 실패
+───────────────────────────────────────────────────────────
+```
+
+**구조화 출력(Structured Output)** 은 이 문제를 해결한다. JSON Schema를 통해 모델이 반드시 특정 구조의 JSON을 반환하도록 강제하면, 파싱 실패 가능성이 거의 사라진다.
+
+## JSON Schema 기반 구조화 출력
+
+구조화 출력은 도구 정의의 `input_schema`와 동일한 방식으로 정의된다. 모델에게 "이 스키마를 따르는 JSON을 반환하라"고 지시하면, 모델은 그 구조를 벗어나는 출력을 생성하지 않도록 제약된다.
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+# 구조화 출력 스키마 정의
+task_result_schema = {
+    "type": "object",
+    "properties": {
+        "status": {
+            "type": "string",
+            "enum": ["success", "failure", "partial"],
+            "description": "작업 완료 상태"
+        },
+        "output_path": {
+            "type": "string",
+            "description": "생성된 파일의 절대 경로 (없으면 null)"
+        },
+        "line_count": {
+            "type": "integer",
+            "description": "출력 파일의 줄 수"
+        },
+        "error_message": {
+            "type": "string",
+            "description": "실패 시 에러 메시지 (성공 시 null)"
+        }
+    },
+    "required": ["status"]
+}
+
+# 도구 응답에 스키마 적용
+response = model.generate(
+    messages=messages,
+    tools=tools,
+    # 구조화 출력 강제
+    output_schema=task_result_schema,
+)
+
+# 이제 response.structured_output은 항상 위 스키마를 따름
+result = response.structured_output
+if result["status"] == "success":
+    process_file(result["output_path"])
+```
+
+## 루프 상태(State)의 구성 요소
+
+에이전틱 루프는 여러 이터레이션에 걸쳐 상태를 유지해야 한다. 상태는 크게 세 계층으로 구분된다.
+
+```text
+에이전트 상태 계층 구조
+───────────────────────────────────────────────────────────
+┌─────────────────────────────────────────────────────────┐
+│                     AGENT STATE                         │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  메시지 히스토리 (Messages)                        │   │
+│  │  [user, assistant, tool, assistant, tool, ...]   │   │
+│  │  ↑ 컨텍스트 창 안에 들어가는 단기 메모리            │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  메타데이터 (Metadata)                             │   │
+│  │  - iteration_count: int                          │   │
+│  │  - start_time: datetime                          │   │
+│  │  - total_tokens: int                             │   │
+│  │  - goal: str (원본 목표, 수정 불가)                │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  완료 플래그 (Completion)                          │   │
+│  │  - is_complete: bool                             │   │
+│  │  - final_result: str | None                      │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+가장 중요한 불변 조건은 **goal(원본 목표)은 절대 수정하지 않는다**는 것이다. 루프가 진행되면서 컨텍스트가 길어지면 초기 목표가 희석되거나 왜곡되는 **목표 표류(goal drift)** 가 발생한다. 원본 목표를 별도 필드로 보존하고, 매 이터레이션마다 시스템 프롬프트에 재주입하면 이 문제를 크게 줄일 수 있다.
+
+## 상태 전달 패턴
+
+이터레이션 간에 상태를 전달하는 방법은 몇 가지가 있다. 각각 트레이드오프가 다르다.
+
+| 패턴 | 방식 | 장점 | 단점 |
+|---|---|---|---|
+| 전체 히스토리 | 모든 메시지를 컨텍스트에 포함 | 구현 단순 | 컨텍스트가 선형 증가 |
+| 요약 압축 | 오래된 메시지를 요약으로 대체 | 컨텍스트 절약 | 요약에서 정보 손실 |
+| 구조화 노트 | 핵심 사실을 JSON 파일로 저장 | 정보 선별 가능 | 무엇을 저장할지 설계 필요 |
+| 하이브리드 | 최근 N개 + 요약 + 구조화 노트 | 균형 | 구현 복잡 |
+
+프로덕션 시스템에서는 하이브리드 방식이 가장 일반적이다. 컨텍스트 창에는 최근 이터레이션의 메시지만 유지하고, 장기 상태는 구조화된 파일로 관리한다.
+
+## 에이전트 간 통신에서의 구조화 출력
+
+멀티에이전트 시스템에서 한 에이전트의 출력이 다른 에이전트의 입력이 될 때, 구조화 출력의 중요성이 더욱 커진다. 에이전트 A가 에이전트 B에게 작업을 위임할 때, 그 작업 명세와 결과 형식이 JSON Schema로 정의되어 있으면 두 에이전트의 인터페이스가 계약(contract)처럼 명확해진다.
+
+```python
+# 에이전트 간 통신 명세
+subtask_spec = {
+    "task_id": "analyze_security_001",
+    "type": "security_analysis",
+    "input": {
+        "file_path": "/workspace/auth.py",
+        "focus_areas": ["sql_injection", "auth_bypass"]
+    },
+    "expected_output_schema": {
+        "vulnerabilities": [
+            {
+                "type": "string",
+                "severity": "high|medium|low",
+                "line": "integer",
+                "description": "string",
+                "recommendation": "string"
+            }
+        ],
+        "overall_risk": "high|medium|low|safe"
+    }
+}
+```
+
+이처럼 명세와 결과 형식을 미리 정의하면, 에이전트가 반환한 결과를 다음 단계에서 파싱 없이 바로 사용할 수 있다. 다음 챕터에서는 지금까지 배운 모든 개념을 50줄 이하의 Python 코드로 구현하는 최소 에이전트 루프를 만들어본다.

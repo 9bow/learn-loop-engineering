@@ -1,0 +1,187 @@
+---
+title: "Error Cascades and Goal Drift"
+description: How an early mistake amplifies through downstream loop iterations, and how the loop's objective silently drifts away from the original goal — with defenses for both.
+sidebar:
+  order: 2
+learning_objectives:
+  - "Explain why error cascades are more dangerous in loops than in single-shot calls"
+  - "Understand the mechanism behind goal drift and how to detect it early"
+  - "Implement original-goal anchoring and tool-output schema validation in code"
+prerequisites:
+  - "7-1-infinite-doom-loops"
+estimated_minutes: 32
+references:
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+---
+
+## Errors Don't Die Alone
+
+In single-shot prompting, an error is contained within one response. In a loop, it isn't. An error produced in one iteration accumulates in the context as a tool result, corrupts the judgment of the next iteration, and that corrupted judgment generates further errors. This compounding chain is called an **error cascade**.
+
+Think about it mathematically. If the probability that a single iteration completes without error is *p*, the probability of clearing *n* steps without any error is *p^n*. With *p* = 0.95 and *n* = 10, the overall success rate drops to roughly 60%. The longer the chain and the lower the per-step reliability, the faster the cascade risk grows exponentially.
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│               Error Cascade Propagation Model                │
+├─────────────────────────────┬───────────────────────────────┤
+│ Clean path                  │ Error path                    │
+├─────────────────────────────┼───────────────────────────────┤
+│ Iteration 1: correct output │ Iteration 1: wrong output     │
+│        │                   │         │                      │
+│        ▼                   │         ▼                      │
+│ Iteration 2: correct output │ Iteration 2: corrupted        │
+│        │                   │         judgment               │
+│        ▼                   │         │                      │
+│ Iteration N: clean finish   │         ▼                      │
+│                             │ Iteration 3: larger error     │
+│                             │         │                      │
+│                             │         ▼                      │
+│                             │ Iteration N: severe state     │
+│                             │         corruption            │
+└─────────────────────────────┴───────────────────────────────┘
+```
+
+## The Premature-Success Trap
+
+A particularly dangerous variant of error cascade is **premature success**: the model wrongly concludes that the task is finished. Anthropic's long-running agent harness guide explicitly warns about this. Examples:
+
+- Code compiles but the logic is wrong → model declares "done"
+- A file was created but the content is incorrect → model declares "done"
+- An API call returned a success status code but was semantically wrong → model declares "done"
+
+The loop stops, but the output is incorrect. Worse, every downstream step built on that flawed conclusion inherits the corruption.
+
+## Tool Output Schema Validation
+
+The first line of defense against error cascades is **schema validation of tool outputs**. Before adding a tool's return value to the context, verify that it matches the expected structure and value range.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolResult:
+    tool_use_id: str
+    content: Any
+    is_error: bool = False
+
+def validated_tool_result(call, raw_result, schema):
+    """
+    Validate a tool result against a schema before returning.
+    On validation failure, wrap as an explicit error result
+    so the model is informed rather than misled.
+    """
+    try:
+        schema.validate(raw_result)
+        return ToolResult(call.id, raw_result)
+    except ValidationError as e:
+        error_msg = f"Tool '{call.name}' output did not match expected schema: {e}"
+        return ToolResult(call.id, error_msg, is_error=True)
+```
+
+The critical point is to **surface the error explicitly to the model** rather than hiding it. The model can only correct its next action if it knows what went wrong. Suppressing errors or substituting empty results actually worsens cascades.
+
+## Goal Drift: When the Destination Moves
+
+Separate from error cascades, there is another hazard: **goal drift**. As the loop progresses, the model's de-facto guide for its next action gradually diverges from the original objective.
+
+A typical goal-drift scenario:
+
+1. User requests: "Refactor the existing API."
+2. Model encounters failing tests during refactoring.
+3. Model shifts focus to fixing the tests.
+4. Fixing the tests requires changing the API interface.
+5. Changing the interface requires patching client code.
+6. By iteration 30 — the original goal of "refactoring" has vanished; an entirely different task is running.
+
+Goal drift is harder to catch than error cascades because it arises from the accumulation of **locally reasonable decisions**, not from obvious mistakes.
+
+```text
+Goal Drift Visualization
+
+  Original goal: [A ──────────────────────────▶ Z]
+
+  Actual path:   [A ──▶ B ──▶ C' ──▶ D'' ──▶ E''']
+                              ↑
+                    locally rational but off-course
+```
+
+## Original-Goal Anchoring
+
+The core technique for preventing goal drift is **original-goal anchoring**. Save the original goal in a **write-protected location** at loop start, and re-inject it at the front of the context on every iteration.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+
+def build_messages(original_goal, history):
+    """
+    Pin the original goal as the first system message on every iteration.
+    No matter how long the history grows, the goal is always at the top.
+    """
+    goal_anchor = {
+        "role": "system",
+        "content": (
+            f"[ORIGINAL GOAL — DO NOT CHANGE]\n{original_goal}\n\n"
+            "Always verify that your current action connects directly to this goal. "
+            "If you believe you are drifting from it, stop immediately and ask the user."
+        )
+    }
+    return [goal_anchor] + history
+
+# Usage
+original_goal = user_request  # set exactly once at loop start
+messages = [user_message(original_goal)]
+
+for iteration in range(MAX_ITER):
+    response = model.generate(
+        build_messages(original_goal, messages),
+        tools=tools
+    )
+    ...
+```
+
+The reason to store the goal in a separate variable and re-inject it is that the goal gets **buried** as the context grows. The same Lost-in-the-Middle effect from chapter 5-2 accelerates goal drift: information near the middle of a long context is least attended to.
+
+## Active Alignment Checking
+
+A more proactive approach is to **insert a verification step at regular intervals** that checks whether the current direction still aligns with the original goal.
+
+```python
+# Conceptual pseudocode — actual API signatures may differ
+ALIGNMENT_CHECK_INTERVAL = 10  # check every 10 iterations
+
+def check_goal_alignment(original_goal, recent_actions, model):
+    """Use a separate LLM call to evaluate alignment."""
+    prompt = f"""
+Original goal: {original_goal}
+
+Recent actions taken:
+{recent_actions}
+
+Are the recent actions progressing toward the original goal?
+Answer only 'aligned' or 'drifted', and add one sentence of explanation.
+"""
+    result = model.generate(prompt)
+    return "drifted" not in result.lower()
+
+for iteration in range(MAX_ITER):
+    ...
+    if iteration > 0 and iteration % ALIGNMENT_CHECK_INTERVAL == 0:
+        if not check_goal_alignment(original_goal, recent_actions, verifier_model):
+            raise GoalDriftError("Goal drift detected: human intervention required")
+```
+
+## The Value of Failing Fast
+
+For both error cascades and goal drift, **failing fast** is a crucial principle. Anthropic's harness guide stresses that "stopping early when the loop is on the wrong path is far cheaper than stopping after dozens more iterations." Detect errors immediately, handle them explicitly, and default to stopping rather than continuing when the situation is ambiguous.
+
+The next chapter addresses what happens after a failure: how **checkpointing** and **idempotency** guarantee a safe restart point so you never have to begin from scratch.

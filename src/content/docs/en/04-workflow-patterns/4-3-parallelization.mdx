@@ -1,0 +1,156 @@
+---
+title: "Parallelization: Sectioning and Voting"
+description: Explore two parallelization strategies — Sectioning, which runs independent tasks simultaneously, and Voting, which boosts reliability through majority vote across multiple independent runs.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Explain the structural differences between Sectioning and Voting"
+  - "Judge which task characteristics make parallelization appropriate — and which do not"
+  - "Understand the relationship between Voting and Self-Consistency from a workflow perspective"
+prerequisites:
+  - "4-1-prompt-chaining"
+estimated_minutes: 28
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Wang et al. — Self-Consistency Improves Chain of Thought Reasoning (arXiv:2203.11171)"
+    url: "https://arxiv.org/abs/2203.11171"
+    accessed: "2026-06-30"
+---
+
+## Breaking the Sequential Bottleneck
+
+Prompt Chaining is ideal when each step depends on the previous step's output. But many real-world tasks contain subtasks that are truly independent. There is no reason to query the weather in Seoul before querying the weather in Paris when both can run at once. Sequential processing makes total latency the sum of each step's latency; parallel processing makes it the latency of the slowest single step.
+
+Anthropic's Building Effective AI Agents distinguishes two sub-patterns of parallelization. **Sectioning** splits a large task into independent pieces, processes them concurrently, and merges the results. **Voting** runs the same task multiple times independently and takes the majority answer.
+
+## Sectioning: Split Then Merge
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│                    Sectioning Flow                             │
+│                                                                │
+│   Large task input                                             │
+│         │                                                      │
+│         ▼                                                      │
+│   Splitter                                                     │
+│   ┌──────────────────────────────────────────────────────┐    │
+│   │  Sec A  │  Sec B  │  Sec C  │  Sec D  │  Sec E      │    │
+│   └──────────────────────────────────────────────────────┘    │
+│         │         │         │         │         │              │
+│         ▼         ▼         ▼         ▼         ▼              │
+│      [LLM]     [LLM]     [LLM]     [LLM]     [LLM]           │
+│     (all launched simultaneously)                              │
+│         │         │         │         │         │              │
+│         ▼         ▼         ▼         ▼         ▼              │
+│   Result A  Result B  Result C  Result D  Result E            │
+│         │                                                      │
+│         ▼                                                      │
+│   Aggregator: merge results A–E into a single output          │
+│         │                                                      │
+│         ▼                                                      │
+│   Final Output                                                 │
+└────────────────────────────────────────────────────────────────┘
+```
+
+The canonical use case for Sectioning is processing long documents. Summarizing a 100-page report in one prompt runs into context limits and the "lost in the middle" problem. Splitting it into 10 sections of 10 pages each, summarizing each in parallel, and then aggregating the 10 summaries yields more uniform quality throughout.
+
+**Critical prerequisite**: the sections must actually be independent. If Section B's summary needs to reference Section A's content, parallelization is not possible — Prompt Chaining or Orchestrator-Workers is a better fit.
+
+## Voting: Majority Vote for Reliability
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│                    Voting Flow                                 │
+│                                                                │
+│   Same task input                                              │
+│         │                                                      │
+│         ├─────────────────┬─────────────────┐                 │
+│         │                 │                 │                 │
+│         ▼                 ▼                 ▼                 │
+│      [LLM #1]          [LLM #2]         [LLM #3]            │
+│     ans: "Approve"    ans: "Reject"    ans: "Approve"        │
+│         │                 │                 │                 │
+│         └─────────────────┴─────────────────┘                 │
+│                           ▼                                    │
+│          Aggregator: Approve 2 vs Reject 1                    │
+│                           ▼                                    │
+│                Final decision: "Approve"                       │
+└────────────────────────────────────────────────────────────────┘
+```
+
+Voting is fundamentally the same idea as Self-Consistency from chapter 3 — implemented at the **workflow level**. Self-Consistency has a single agent sample the same problem multiple times and vote internally. Workflow Voting runs multiple independent LLM calls (possibly with different temperature settings or different system prompts) in parallel and aggregates externally.
+
+Voting is especially effective for **classification and binary decisions**: content safety checks, approve/reject decisions, quality threshold assessments. For binary outputs, majority vote is consistently more reliable than a single call.
+
+## Python Implementation
+
+This is conceptual pseudocode for illustration; actual API signatures may differ.
+
+```python
+import asyncio
+from collections import Counter
+
+async def sectioning(model, task: str, sections: list[str]) -> str:
+    """
+    Process independent sections in parallel, then merge.
+    """
+    async def process_section(section: str) -> str:
+        prompt = f"Summarize the following section:\n\n{section}"
+        result = await model.generate_async(
+            [{"role": "user", "content": prompt}]
+        )
+        return result.text
+
+    # Process all sections simultaneously
+    summaries = await asyncio.gather(*[
+        process_section(s) for s in sections
+    ])
+
+    # Merge
+    aggregator_prompt = (
+        f"Original task: {task}\n\n"
+        "Combine the section summaries below into one coherent final summary:\n\n" +
+        "\n\n".join(f"Section {i+1}:\n{s}" for i, s in enumerate(summaries))
+    )
+    final = await model.generate_async(
+        [{"role": "user", "content": aggregator_prompt}]
+    )
+    return final.text
+
+
+async def voting(
+    model,
+    question: str,
+    n_votes: int = 5,
+    temperature: float = 0.7,
+) -> str:
+    """
+    Run the same question N times independently and decide by majority vote.
+    """
+    async def single_vote() -> str:
+        result = await model.generate_async(
+            [{"role": "user", "content": question}],
+            temperature=temperature,
+        )
+        return result.text.strip()
+
+    votes = await asyncio.gather(*[single_vote() for _ in range(n_votes)])
+    counter = Counter(votes)
+    winner, count = counter.most_common(1)[0]
+    return winner
+```
+
+## Cost Structure of Parallelization
+
+Parallelization cuts latency but **does not cut cost**. N parallel calls cost N times as much in tokens as a single call. Parallelization is optimal when both of the following hold simultaneously:
+
+| Condition | Rationale |
+|-----------|-----------|
+| Latency reduction matters more than cost | Real-time requirements, SLA constraints |
+| Subtasks are genuinely independent | No shared state between sections or votes |
+
+The **Aggregator** that merges results is itself an additional LLM call. Include that cost in your total budget calculation.
+
+The next chapter covers Orchestrator-Workers, which performs a more dynamic decomposition than Sectioning. The orchestrator decides subtasks on the fly based on prior worker results, rather than splitting the input upfront.

@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "ReAct(Yao et al., ICLR 2023)가 ALFWorld에서 강화학습 기준선 대비 달성한 절대값 성능 향상은?",
+    "options": [
+      "+10%",
+      "+20%",
+      "+34%",
+      "+50%"
+    ],
+    "answer": 2,
+    "explanation": "챕터 3-1에서 ReAct는 ALFWorld에서 강화학습(RL) 기준선 대비 절대값 +34%, WebShop에서 +10%를 달성했다고 명시합니다."
+  },
+  {
+    "id": "q2",
+    "question": "ReAct 패턴의 Thought 단계에 대한 올바른 설명은?",
+    "options": [
+      "실제 도구를 호출하는 단계다",
+      "모델의 언어적 작업 메모로, 도구를 호출하지 않는 내부 추론이다",
+      "외부 관찰 결과를 처리하는 단계다",
+      "최종 답변을 사용자에게 반환하는 단계다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 3-1에서 Thought 단계는 'token으로 생성되지만 도구를 호출하지 않는 모델의 언어적 작업 메모'라고 설명합니다."
+  },
+  {
+    "id": "q3",
+    "question": "Reflexion 패턴에서 에피소드 메모리(episodic memory)에 추가되는 내용은?",
+    "options": [
+      "원본 태스크 설명",
+      "이전 이터레이션의 모든 도구 결과",
+      "이전 시도에서 무엇이 잘못됐고 다음에 어떻게 해야 하는지를 담은 언어적 반성문",
+      "현재 컨텍스트 창의 압축 요약"
+    ],
+    "answer": 2,
+    "explanation": "챕터 3-2에서 Reflexion의 에피소드 메모리는 이전 실패에서 무엇을 배웠는지를 자연어로 기록한 반성문이며, 이것이 다음 시도의 시스템 프롬프트에 주입된다고 설명합니다."
+  },
+  {
+    "id": "q4",
+    "question": "Reflexion이 HumanEval 코딩 벤치마크에서 달성한 pass@1 성공률은?",
+    "options": [
+      "74%",
+      "80%",
+      "91%",
+      "98%"
+    ],
+    "answer": 2,
+    "explanation": "챕터 3-2에서 Reflexion은 HumanEval 코딩 태스크에서 pass@1 기준 91%를 달성했다고 명시합니다."
+  },
+  {
+    "id": "q5",
+    "question": "Self-Refine 패턴에서 '아첨적 비판(sycophantic critique)' 실패 모드란?",
+    "options": [
+      "모델이 비판 자체를 거부하는 현상",
+      "모델이 자신의 출력을 비판할 때 실제 문제가 있어도 지나치게 긍정적으로 평가하는 경향",
+      "비판이 너무 길고 구체적인 현상",
+      "수정 후 오히려 성능이 저하되는 현상"
+    ],
+    "answer": 1,
+    "explanation": "챕터 3-4에서 Self-Refine의 대표 실패 모드는 '아첨적 비판(sycophantic critique)'으로, 모델이 자기 출력을 비판하면서도 실질적인 문제를 지적하지 않고 긍정적으로만 평가하는 경향이 있다고 설명합니다."
+  },
+  {
+    "id": "q6",
+    "question": "Tree of Thoughts(ToT) BFS 탐색이 Game of 24 퍼즐에서 달성한 성공률은?",
+    "options": [
+      "4%",
+      "26%",
+      "52%",
+      "74%"
+    ],
+    "answer": 3,
+    "explanation": "챕터 3-5에서 Game of 24 퍼즐에서 표준 CoT는 4%에 불과했지만, ToT BFS 탐색은 74%를 달성했다고 명시합니다."
+  },
+  {
+    "id": "q7",
+    "question": "Graph of Thoughts(GoT)가 Tree of Thoughts(ToT)와 구조적으로 다른 점은?",
+    "options": [
+      "GoT는 BFS 대신 DFS를 사용한다",
+      "GoT는 트리 대신 DAG(방향 비순환 그래프) 구조로 사고 간 병합과 재결합을 허용한다",
+      "GoT는 State Evaluator를 사용하지 않는다",
+      "GoT는 단일 LLM 호출로 동작한다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 3-5에서 GoT는 ToT의 트리 구조를 DAG(Directed Acyclic Graph)로 확장해 여러 사고 경로를 병합하고 재결합할 수 있게 한다고 설명합니다."
+  },
+  {
+    "id": "q8",
+    "question": "Plan-and-Execute에서 Replanning이 필요한 상황은?",
+    "options": [
+      "모든 스텝이 성공적으로 완료됐을 때",
+      "실행 중 예상치 못한 오류가 발생해 원래 계획이 현실과 불일치할 때",
+      "계획 단계에서 너무 많은 스텝이 생성됐을 때",
+      "Executor가 계획을 이해하지 못할 때"
+    ],
+    "answer": 1,
+    "explanation": "챕터 3-3에서 Plan-and-Execute의 실패 모드로 'Stale Plan(구식 계획)'을 들며, 실행 중 현실이 계획과 달라질 때 Replanning이 필요하다고 설명합니다."
+  },
+  {
+    "id": "q9",
+    "question": "ReWOO 패턴에서 Planner 단계의 핵심 특징은?",
+    "options": [
+      "도구 결과를 보면서 순차적으로 계획을 수립한다",
+      "도구 결과(Observation) 없이 전체 실행 계획을 미리 수립한다",
+      "단일 도구만 사용하도록 계획을 제한한다",
+      "항상 Replanning 단계를 포함한다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 3-6에서 ReWOO의 특징은 Planner가 Observation 없이 전체 계획을 먼저 수립하고 #E1, #E2 같은 플레이스홀더로 미래 결과를 참조한다는 것입니다."
+  },
+  {
+    "id": "q10",
+    "question": "ReWOO가 HotpotQA에서 ReAct 대비 달성한 토큰 효율 향상 배수는?",
+    "options": [
+      "2배",
+      "3배",
+      "5배",
+      "10배"
+    ],
+    "answer": 2,
+    "explanation": "챕터 3-6에서 ReWOO는 HotpotQA에서 ReAct 대비 약 5배의 토큰 효율 향상과 +4% 성능 향상을 달성했다고 명시합니다."
+  },
+  {
+    "id": "q11",
+    "question": "LLMCompiler가 공략하는 ReAct의 핵심 비효율은?",
+    "options": [
+      "컨텍스트 누적으로 인한 토큰 낭비",
+      "서로 의존하지 않는 도구 호출들이 순차적으로 실행되는 실행 지연",
+      "환각(hallucination) 발생 빈도",
+      "도구 선택 오류"
+    ],
+    "answer": 1,
+    "explanation": "챕터 3-6에서 LLMCompiler는 독립적인 도구 호출들을 DAG로 표현하고 병렬 실행해 ReAct의 순차적 실행 지연을 해소한다고 설명합니다."
+  },
+  {
+    "id": "q12",
+    "question": "Reflexion의 '언어적 강화학습(verbal reinforcement learning)'이 일반 RL과 다른 점은?",
+    "options": [
+      "더 많은 훈련 데이터가 필요하다",
+      "모델 파라미터를 업데이트하지 않고 언어 반성문만으로 이전 실패에서 학습한다",
+      "보상 함수를 별도로 학습해야 한다",
+      "여러 모델을 앙상블해야 한다"
+    ],
+    "answer": 1,
+    "explanation": "챕터 3-2에서 Reflexion은 모델 가중치를 수정하지 않고 자연어로 된 반성문을 에피소드 메모리에 저장해 다음 시도에 반영하는 방식으로 학습한다고 설명합니다."
+  },
+  {
+    "id": "q13",
+    "question": "Self-Refine이 여러 벤치마크에서 달성한 평균 절대값 성능 향상은?",
+    "options": [
+      "약 5%",
+      "약 10%",
+      "약 20%",
+      "약 40%"
+    ],
+    "answer": 2,
+    "explanation": "챕터 3-4에서 Self-Refine은 여러 태스크에서 약 20% 절대값 성능 향상을 달성했다고 명시합니다."
+  }
+]

@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "At what percentage of the context window does Claude Code trigger Compaction?",
+    "options": [
+      "50%",
+      "70%",
+      "92%",
+      "99%"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 12-1 states that Claude Code automatically triggers Compaction when 92% of the context window is reached — a higher threshold than the general recommendation of 70–80%."
+  },
+  {
+    "id": "q2",
+    "question": "What is the role of the CLAUDE.md file in Claude Code?",
+    "options": [
+      "It controls the maximum number of loop iterations",
+      "It is a file-based persistent memory that reliably supplies the agent with project-related context",
+      "It defines the list of available tools",
+      "It stores user authentication credentials"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 12-1 explains that CLAUDE.md is Claude Code's core persistent memory file, containing stable context such as project overview, coding style, and important constraints that the agent should reference in every iteration."
+  },
+  {
+    "id": "q3",
+    "question": "Which statement captures the loop engineering philosophy Boris Cherny (Claude Code lead) articulated?",
+    "options": [
+      "\"Better prompts make better agents.\"",
+      "\"Maximizing the context window eliminates the need for agents.\"",
+      "\"Multi-agent systems are always better than single agents.\"",
+      "\"I don't prompt Claude anymore. I write loops and let it figure out what to do. My job is to write the loop.\""
+    ],
+    "answer": 3,
+    "explanation": "Chapter 12-1 cites Boris Cherny's quote: \"I don't prompt Claude anymore. I run loops and let it figure out what to do. My job is to write the loop.\" — representing the loop engineering paradigm."
+  },
+  {
+    "id": "q4",
+    "question": "What resolution rate did SWE-agent record on SWE-bench at initial publication?",
+    "options": [
+      "5.2%",
+      "12.5%",
+      "30.1%",
+      "50.0%"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 12-2 states that SWE-agent recorded 12.5% on SWE-bench at initial publication — a significant figure demonstrating the practical potential of agentic loops at the time."
+  },
+  {
+    "id": "q5",
+    "question": "What is the purpose of the 'bounded file viewer' in SWE-agent's ACI?",
+    "options": [
+      "To show the entire file at once so the agent can grasp the full context",
+      "To display only the chunk around the current edit location, reducing context waste and improving focus",
+      "To restrict file modification permissions",
+      "To enable multiple files to be open simultaneously"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 12-2 explains that the bounded file viewer displays only the chunk around the edit target rather than the full file, preventing the 'Lost in the Middle' problem and improving context efficiency."
+  },
+  {
+    "id": "q6",
+    "question": "What does `while :; do cat PROMPT.md | claude-code; done` mean in the Ralph technique?",
+    "options": [
+      "It reads PROMPT.md once and repeatedly runs Claude Code",
+      "It is an infinite loop that re-reads PROMPT.md on every iteration and pipes it to Claude Code, starting with fresh context each time",
+      "It terminates the loop when the contents of PROMPT.md do not change",
+      "It writes Claude Code's output back to PROMPT.md"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 12-3 explains that `while :; do ... done` is an infinite loop, and `cat PROMPT.md` re-reads the file on every iteration and pipes it so that execution starts with fresh context each time."
+  },
+  {
+    "id": "q7",
+    "question": "What does the 'one responsibility per loop' principle in the Ralph technique mean?",
+    "options": [
+      "A single loop run performs exactly one clearly defined task",
+      "The loop must contain only one LLM call",
+      "The loop must run only once",
+      "The loop may only use one tool"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 12-3 explains that the single responsibility principle of the Ralph technique means putting only one clear goal in PROMPT.md so the loop does not do multiple different things simultaneously."
+  },
+  {
+    "id": "q8",
+    "question": "What is the role of `fix_plan.md` in spec-driven loop design?",
+    "options": [
+      "It permanently preserves architecture decisions for the project",
+      "It stores functional requirements that change infrequently",
+      "It is a work-order document that tracks the current fix target and completion status with checkboxes",
+      "It defines test cases"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 12-4 explains that fix_plan.md is a current work-order document that tracks specific goals and completion status — via checkboxes — of the bug fix or feature implementation currently in progress."
+  },
+  {
+    "id": "q9",
+    "question": "What is the '1000-page manual' anti-pattern for AGENTS.md?",
+    "options": [
+      "Writing AGENTS.md too briefly",
+      "Making AGENTS.md a massive single document containing everything the agent needs to know",
+      "Splitting AGENTS.md into multiple files",
+      "Auto-generating AGENTS.md"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 12-4 explains that the anti-pattern for AGENTS.md is turning it into a giant manual containing everything directly instead of an index (pointers to other spec files), and that a correct AGENTS.md should serve as an index to other spec files."
+  },
+  {
+    "id": "q10",
+    "question": "In pattern selection, when the answer to 'Can the task execution path be determined in advance?' is 'No,' what should you choose?",
+    "options": [
+      "Prompt Chaining",
+      "Agent",
+      "Workflow",
+      "A single LLM call"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 12-5 guides that when the task path cannot be defined in advance, choose an agent that dynamically decides the next step, and when it can be defined in advance, choose a workflow."
+  },
+  {
+    "id": "q11",
+    "question": "What is the correct order of SWE-agent's edit-test-fix loop?",
+    "options": [
+      "test → edit → fix",
+      "explore → edit → test → (fix and repeat as needed)",
+      "fix → test → edit",
+      "plan → deploy → test"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 12-2 explains that SWE-agent first explores the codebase (explore), edits files (edit), runs tests (test), and repeats fixes (fix) on failure — an edit-test-fix loop."
+  },
+  {
+    "id": "q12",
+    "question": "What core principle does Anthropic consistently emphasize in pattern selection?",
+    "options": [
+      "Always choose the most complex pattern to ensure future extensibility",
+      "Start with a multi-agent system as the default",
+      "Start as simply as possible and add complexity only when it is genuinely needed",
+      "Always choose the least expensive pattern"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 12-5 consistently emphasizes Anthropic's principle of 'start simple,' warning that unnecessary complexity makes debugging harder and increases failure points."
+  },
+  {
+    "id": "q13",
+    "question": "What is the purpose of classifying files in the `specs/` directory by change frequency in spec-driven loops?",
+    "options": [
+      "To sort files alphabetically",
+      "To make version control easier",
+      "To reduce file sizes",
+      "To distinguish stable context (low change frequency) from work in progress (high change frequency), optimizing which information to re-inject into the loop"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 12-4 explains that classifying specs/ files by change frequency allows stable content to be KV-cached for efficiency while frequently changing work-order files are re-injected fresh on every loop iteration, optimizing context management."
+  }
+]

@@ -1,0 +1,170 @@
+[
+  {
+    "id": "q1",
+    "question": "What is the correct order of the four stages in one iteration of an agentic loop?",
+    "options": [
+      "Reason → Observe → Act → Evaluate",
+      "Observe → Reason → Act → Evaluate",
+      "Act → Observe → Reason → Evaluate",
+      "Observe → Act → Reason → Evaluate"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 2-1 states that the ORAE cycle proceeds in the order: Observe → Reason → Act → Evaluate."
+  },
+  {
+    "id": "q2",
+    "question": "What are the two output types the model can return during the Reason stage?",
+    "options": [
+      "tool_result or end_loop",
+      "tool_calls or end_turn",
+      "action or complete",
+      "thought or finish"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 2-1 states that the Reason stage output branches into either tool_calls (a request to invoke a tool) or end_turn (the final answer)."
+  },
+  {
+    "id": "q3",
+    "question": "Who actually executes the tools during the Act stage?",
+    "options": [
+      "Inside the LLM model",
+      "The harness code",
+      "The user",
+      "An external API server"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 2-1 explicitly states that during the Act stage, 'it is not the model that calls the tool — the harness code reads the model's tool_calls specification and executes the actual tool.'"
+  },
+  {
+    "id": "q4",
+    "question": "What is the fundamental difference between Chain-of-Thought (CoT) and an agentic loop?",
+    "options": [
+      "CoT uses tools, while a loop does not",
+      "CoT is internal reasoning within a single forward pass, while a loop invokes the model multiple times and incorporates external observations",
+      "CoT requires reinforcement learning, while a loop does not",
+      "CoT always consumes more tokens"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 2-2 explains that Chain-of-Thought is an internal reasoning process that takes place within a single forward pass, and unlike a loop it does not call external tools or incorporate observations."
+  },
+  {
+    "id": "q5",
+    "question": "What performance improvement did the Self-Consistency technique achieve on the GSM8K benchmark compared to standard CoT?",
+    "options": [
+      "+5.3%",
+      "+11.0%",
+      "+17.9%",
+      "+24.2%"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 2-2 states that Self-Consistency recorded +17.9% on GSM8K, +11.0% on SVAMP, and +12.2% on AQuA."
+  },
+  {
+    "id": "q6",
+    "question": "Which of the following is a correct Agent-Computer Interface (ACI) design principle?",
+    "options": [
+      "The more tools provided, the better, as the model has more choices",
+      "Error messages should be as short and technical as possible",
+      "Group similar functions into a single tool to improve cohesion",
+      "Use abbreviated parameter names to save tokens"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 2-3 states that ACI principles include: ① clear parameter names and descriptions, ② a small number of functionally cohesive tools, and ③ actionable error messages."
+  },
+  {
+    "id": "q7",
+    "question": "What is the name of the protocol Anthropic proposed to standardize tool interfaces?",
+    "options": [
+      "Tool Use Protocol (TUP)",
+      "Model Context Protocol (MCP)",
+      "Agent Communication Interface (ACI)",
+      "LLM Tool Standard (LTS)"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 2-3 states that Anthropic proposed MCP (Model Context Protocol) to standardize tool interfaces."
+  },
+  {
+    "id": "q8",
+    "question": "Which item in loop state must never be modified?",
+    "options": [
+      "Iteration counter",
+      "Tool result list",
+      "Original goal",
+      "Done flag"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 2-4 explicitly states that 'the goal must never be changed,' which is a core principle for preventing goal drift."
+  },
+  {
+    "id": "q9",
+    "question": "Why is a MAX_ITERATIONS guard necessary in a minimal agent loop implementation?",
+    "options": [
+      "To limit tool execution time",
+      "To act as a safety net in case the model never returns end_turn, preventing the loop from running indefinitely",
+      "To prevent the context window from overflowing",
+      "To accurately predict API costs"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 2-5 explains that the MAX_ITERATIONS=20 guard is a safety mechanism for cases where the model repeats tool calls indefinitely or never returns end_turn."
+  },
+  {
+    "id": "q10",
+    "question": "Why is structured output (JSON Schema) more reliable than free-text parsing?",
+    "options": [
+      "Because JSON consumes fewer tokens",
+      "Because JSON is easier for humans to read",
+      "Because structured output is generated faster",
+      "Because it constrains the model from producing output that deviates from the schema, reducing parsing failures"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 2-4 explains that structured output via JSON Schema forces the model to stay within the defined structure, preventing downstream parsing failures."
+  },
+  {
+    "id": "q11",
+    "question": "What causes 'premature success' in the Evaluate stage?",
+    "options": [
+      "When the evaluation logic is insufficient and the model incorrectly judges an incomplete result as complete",
+      "When the loop runs too fast",
+      "When tool execution fails",
+      "When the context window is too small"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 2-1 explains that a weak Evaluate stage can cause the 'premature success' failure mode, where the model mistakes an insufficiently completed result for a completed one."
+  },
+  {
+    "id": "q12",
+    "question": "When comparing ReAct's Thought-Act-Observe pattern to the ORAE framework, which stage exists only explicitly in ORAE?",
+    "options": [
+      "Observe",
+      "Reason",
+      "Act",
+      "Evaluate"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 2-1 explains that the original ReAct paper does not include an explicit Evaluate stage. ORAE adds it explicitly to separately assess whether the loop has achieved its goal."
+  },
+  {
+    "id": "q13",
+    "question": "What does a stop_reason == \"tool_use\" signal mean?",
+    "options": [
+      "The model has declared the task complete",
+      "It is a signal to terminate the loop immediately",
+      "The model wants to execute a tool and continue working after receiving the result",
+      "An error has occurred and a retry is needed"
+    ],
+    "answer": 2,
+    "explanation": "Chapters 2-1 and 2-3 explain that stop_reason == \"tool_use\" is a signal that the model is pausing its reasoning to request tool execution, and the harness must run the tool, add the result to context, and re-invoke the model."
+  },
+  {
+    "id": "q14",
+    "question": "Why must error messages in an ACI be written 'actionably'?",
+    "options": [
+      "Because shorter error messages are better",
+      "Because the user needs to understand the error",
+      "Because error messages save context",
+      "Because the model reads error messages to decide the next action, so error messages that contain corrective direction help loop recovery"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 2-3 explains that because the model reads error messages to determine its next step, actionable error messages that include corrective direction — rather than simple error codes — are important for loop recovery."
+  }
+]

@@ -1,0 +1,170 @@
+[
+  {
+    "id": "q1",
+    "question": "Which of the following is NOT one of the three structural limitations of single-shot prompting?",
+    "options": [
+      "Inability to act — the model can only generate text and cannot execute real tools",
+      "No feedback — there is no external signal to verify whether its own output is correct",
+      "Step compression — multi-step reasoning must be squeezed into a single forward pass",
+      "Insufficient context — the model lacks adequate background knowledge"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 1-1 defines the three limitations of single-shot as: ① inability to act, ② no feedback, and ③ step compression. 'Insufficient context' is not one of them."
+  },
+  {
+    "id": "q2",
+    "question": "Which of the following is NOT one of the three keywords that appear across the agent definitions cited by Anthropic?",
+    "options": [
+      "Tool",
+      "Loop",
+      "Environmental feedback",
+      "Multi-step planning"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 1-2 states that the three keywords common to the definitions by Anthropic, Solomon Hykes, and Simon Willison are: tool, loop, and environmental feedback. 'Multi-step planning' is not one of them."
+  },
+  {
+    "id": "q3",
+    "question": "What are the three components of an Augmented LLM as proposed by Lilian Weng?",
+    "options": [
+      "Retrieval (RAG), Tool Use, Memory",
+      "Retrieval (RAG), Fine-tuning, Context Engineering",
+      "Tool Use, Reinforcement Learning (RL), Memory",
+      "Chain-of-Thought (CoT), Tool Use, Memory"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 1-2 states that according to Lilian Weng's framework, an Augmented LLM is an LLM enhanced with Retrieval (RAG), Tool Use, and a Memory Store."
+  },
+  {
+    "id": "q4",
+    "question": "What is the core criterion that distinguishes a Workflow from an Agent?",
+    "options": [
+      "The size of the LLM being used",
+      "The number of tools being used",
+      "Where control flow resides — who decides the next step",
+      "The maximum number of iterations"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 1-3 explains that in a workflow, control flow is fixed in code (by the developer), whereas in an agent, the model itself holds decision-making authority over the control flow."
+  },
+  {
+    "id": "q5",
+    "question": "According to Anthropic's 'start simple' principle, when is a workflow preferable to an agent?",
+    "options": [
+      "When the steps or order of a task vary based on input and are difficult to define in advance",
+      "When the task path is predictable and the steps are fixed",
+      "When there is significant interaction with the external world",
+      "When automatic recovery from errors is required"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 1-3 states that according to Anthropic's criteria, a workflow is chosen when the task path is predictable and steps are fixed, while an agent is chosen when the steps or order are difficult to define in advance."
+  },
+  {
+    "id": "q6",
+    "question": "How did Simon Willison define context engineering in 2025?",
+    "options": [
+      "The discipline of designing iterative cycles inside a loop",
+      "The skill of correctly constructing the context a model needs to perform a task",
+      "A technique for injecting few-shot examples into prompts",
+      "A technique for updating model weights with data"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 1-4 states that Simon Willison defined context engineering in June 2025 as 'the skill of correctly constructing the context a model needs to perform a task.'"
+  },
+  {
+    "id": "q7",
+    "question": "Who coined the term 'Loop Engineering' as an independent engineering discipline?",
+    "options": [
+      "Simon Willison",
+      "Lilian Weng",
+      "Andrej Karpathy",
+      "Addy Osmani"
+    ],
+    "answer": 3,
+    "explanation": "Chapters 1-4 and 1-5 state that Addy Osmani named loop engineering as a distinct layer and engineering discipline."
+  },
+  {
+    "id": "q8",
+    "question": "In the ReAct paper (Yao et al., ICLR 2023), what was the absolute performance improvement on the ALFWorld task over the reinforcement learning baseline?",
+    "options": [
+      "+10%",
+      "+20%",
+      "+34%",
+      "+50%"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 1-5 states that ReAct achieved an absolute +34% improvement over the RL baseline on ALFWorld and +10% on WebShop."
+  },
+  {
+    "id": "q9",
+    "question": "What was the primary cause of failure for AutoGPT and BabyAGI in early 2023, as mentioned in the chapter?",
+    "options": [
+      "Insufficient model capability",
+      "Infinite loops and hallucination cascades",
+      "Lack of tool interfaces",
+      "Restricted internet access"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 1-5 explains that the failure modes of AutoGPT and BabyAGI were 'infinite loops and hallucination cascades.'"
+  },
+  {
+    "id": "q10",
+    "question": "What are the three axes along which Lilian Weng's June 2023 blog categorized agentic systems?",
+    "options": [
+      "Planning, Memory, Tool Use",
+      "Reasoning, Acting, Observation",
+      "Prompt, Context, Loop",
+      "Safety, Efficiency, Scalability"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 1-5 states that Lilian Weng's blog categorized agentic systems along three axes: Planning, Memory, and Tool Use."
+  },
+  {
+    "id": "q11",
+    "question": "What is the core loop shell command of the Ralph technique?",
+    "options": [
+      "`for i in $(seq 10); do claude-code < task.txt; done`",
+      "`while :; do cat PROMPT.md | claude-code; done`",
+      "`python agent.py --loop --prompt PROMPT.md`",
+      "`claude-code run --repeat --file PROMPT.md`"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 1-5 states that Geoffrey Huntley's Ralph technique core loop is the single line: `while :; do cat PROMPT.md | claude-code; done`."
+  },
+  {
+    "id": "q12",
+    "question": "Which of the following is correctly classified as an Agent?",
+    "options": [
+      "A RAG pipeline (retrieve → generate → terminate, no loop)",
+      "A single LLM call that terminates after one function call",
+      "A loop that adds tool results to context and re-invokes the model",
+      "A single prompt with role assignment and few-shot examples"
+    ],
+    "answer": 2,
+    "explanation": "According to the agent identification criteria table in Chapter 1-2, only a system that calls tools, feeds results back into the next model call (loop exists), and whose termination condition depends on the model's judgment qualifies as an agent."
+  },
+  {
+    "id": "q13",
+    "question": "What is the relationship between prompt engineering → context engineering → loop engineering?",
+    "options": [
+      "The three layers are mutually exclusive and replace each other",
+      "Each higher layer absorbs (includes) the lower layers in a cumulative relationship",
+      "Lower layers replace higher layers",
+      "The three layers are applied independently"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 1-4 explains that the three layers are not mutually exclusive but cumulative, with each higher layer absorbing the lower ones. A loop engineer also makes context engineering and prompt engineering decisions."
+  },
+  {
+    "id": "q14",
+    "question": "What does Anthropic call the Augmented LLM in the context of agentic systems?",
+    "options": [
+      "Orchestrator",
+      "Building block",
+      "Evaluator",
+      "Verifier"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 1-2 states that Anthropic explicitly refers to the Augmented LLM as the 'building block' of entire agentic systems. It is useful on its own and can be combined with others to form more complex systems."
+  }
+]

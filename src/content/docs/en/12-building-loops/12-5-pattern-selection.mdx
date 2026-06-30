@@ -1,0 +1,149 @@
+---
+title: "Pattern Selection Decision Framework"
+description: A decision framework for choosing the optimal loop pattern based on task characteristics, planning horizon, cost/latency tolerance, and availability of evaluation signals.
+sidebar:
+  order: 5
+learning_objectives:
+  - "Explain the criteria for selecting a pattern from task predictability, planning horizon, evaluation signal quality, and error propagation risk"
+  - "Apply the workflow-vs-agent and single-agent-vs-multi-agent decision trees"
+  - "Describe the costs that under-engineered and over-engineered loops produce for the same problem"
+prerequisites:
+  - "3-1-react"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+---
+
+## The Problem of Choice
+
+Earlier in this course we covered many patterns: single-shot, prompt chaining, routing, parallelization, orchestrator-worker, ReAct, Reflexion, Tree of Thoughts, Ralph loops, spec-driven design... The realistic question that remains: **for a specific problem, which pattern should you choose?**
+
+Anthropic offers simple but important guidance: "When building agentic systems, start as simple as possible." If the simplest approach is sufficient, do not introduce a more complex loop. Complexity brings failure modes, debugging cost, and maintenance burden.
+
+## Decision Axis 1: Task Predictability
+
+The first thing to ask is whether **the execution path can be determined in advance**.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│              Choice Based on Task Predictability                 │
+└─────────────────────────────────────────────────────────────────┘
+
+    Can the execution path be decided in advance?
+              │
+    ┌─────────┴─────────┐
+   Yes                  No
+    │                   │
+    ▼                   ▼
+ Workflow             Agent
+(code controls flow) (model controls flow)
+    │                   │
+  Faster             More flexible
+  Cheaper            More expensive
+  Easy to debug      Many failure modes
+```
+
+"Classify customer support tickets, immediately escalate urgent ones, and generate template responses for general ones" — the branching is clear and each step is deterministic. A routing workflow (Section 4-2) fits.
+
+"Find and fix the bug in this repository" — which files to read, how to fix it, how the tests will behave cannot be known in advance. An agent is needed.
+
+## Decision Axis 2: Planning Horizon and Feedback Frequency
+
+Even within single-agent patterns there are choices. The criterion is **how long a planning horizon is needed and how often feedback can be received**.
+
+| Pattern | Planning Horizon | Feedback Frequency | Representative Use |
+|---|---|---|---|
+| ReAct | Short (step-by-step) | After each tool call | Web-search QA |
+| Plan-and-Execute | Medium | After plan is set, during execution | Multi-step research |
+| Reflexion | Medium | After task completes | Iterative code gen |
+| Tree of Thoughts | Medium | After node evaluation | Math, strategy search |
+| Ralph / spec-driven | Long | After each iteration | Long-horizon coding |
+
+## Decision Axis 3: Evaluation Signal Quality
+
+How reliable is the **evaluation signal** that determines when the loop ends and in which direction it should improve?
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                Evaluation Signal Quality and Loop Choice         │
+└─────────────────────────────────────────────────────────────────┘
+
+Mechanically verifiable    →  Test-driven loop (strongly recommended)
+(tests, lint, build)           Loop can trust its termination condition
+
+LLM-judge evaluation       →  Evaluator-optimizer pattern (Sec. 4-5)
+(quality, style, etc.)         Bias / drift risk; use as supplement only
+
+Human evaluation only      →  Human-in-the-loop mandatory (Sec. 6-5)
+(creative, subjective)         Loop speed and autonomy severely limited
+
+Not evaluable              →  Agentic loop itself is inappropriate
+                               Replace with single LLM call or human work
+```
+
+The weaker the evaluation signal, the harder it is for the loop to **converge in the right direction**. Without a strong mechanical verification signal, consider a simple workflow or single LLM call first.
+
+## Decision Axis 4: Error Propagation Risk
+
+When a mistake occurs in the loop, **how much damage can it cause?** Higher propagation risk demands more verification checkpoints and human oversight.
+
+- **Low**: Text summarization, classification, draft generation — bad output can be reviewed and discarded
+- **Medium**: Code modification, data transformation — testable, recoverable via version control
+- **High**: Sending emails, processing payments, deleting data — irreversible or costly to undo
+
+Higher risk requires checkpoints, human approval gates, and idempotency guarantees in the loop design (Sections 6-5 and 7-3).
+
+## The Full Decision Tree
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│              Loop Pattern Selection Decision Tree                 │
+└─────────────────────────────────────────────────────────────────┘
+
+START: a task to solve
+         │
+         ▼
+  ① Is a single LLM call sufficient?
+         ├── Yes → single-shot prompt (no loop needed)
+         └── No
+                │
+                ▼
+  ② Can the execution path be defined in code in advance?
+         ├── Yes → choose a workflow pattern
+         │         ├── Sequential: prompt chaining
+         │         ├── Branching: routing
+         │         ├── Parallel: parallelization (sectioning / voting)
+         │         └── Dynamic subtasks: orchestrator-worker
+         │
+         └── No → agent required
+                │
+                ▼
+  ③ Task length and repetition needs?
+         ├── Short, immediate feedback  → ReAct
+         ├── Medium, iterative improve  → Reflexion or Self-Refine
+         ├── Medium, planning needed   → Plan-and-Execute
+         ├── Exploration, multi-path   → Tree of Thoughts (watch cost)
+         └── Long-horizon coding       → Ralph / spec-driven loop
+                │
+                ▼
+  ④ Is parallelization or specialization needed?
+         ├── Yes → multi-agent (Section 10)
+         └── No  → proceed with single agent
+```
+
+## The Real Cost of Under- and Over-Engineering
+
+It is important to be honest about the actual cost of choosing the wrong pattern.
+
+**Under-engineering**: Trying to solve with a single LLM call — without intermediate verification, errors reach the final output. Complex multi-step reasoning is compressed into one forward pass, reducing quality. This is especially pronounced in tasks like coding that require execution and verification.
+
+**Over-engineering**: Applying Tree of Thoughts or multi-agent to a simple task — cost, latency, and complexity explode; debugging and observability become difficult. A significant portion of tasks that "seem to need an agent" can be solved with a well-written prompt chain.
+
+Remember Anthropic's principle: **start simple. Add complexity only after real necessity has been demonstrated.**
+
+The final chapter looks toward the future of loop engineering — how the loop engineer's role is changing in a Software 3.0 world.

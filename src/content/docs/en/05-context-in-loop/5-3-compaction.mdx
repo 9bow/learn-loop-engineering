@@ -1,0 +1,140 @@
+---
+title: "Compaction: Context Compression Strategies"
+description: Techniques for compressing or restructuring context when it reaches a threshold — keeping the loop running without losing critical information.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Define compaction and determine when to trigger it"
+  - "Compare the trade-offs of summarization, tool result clearing, and reinitialization"
+  - "Understand how Claude Code and Codex implement compaction in practice"
+prerequisites:
+  - "5-1-attention-budget-context-rot"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Effective context engineering for AI agents"
+    url: "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents"
+    accessed: "2026-06-30"
+  - title: "OpenAI — Unrolling the Codex agent loop"
+    url: "https://openai.com/index/unrolling-the-codex-agent-loop/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+---
+
+## The Loop Must Keep Running
+
+An agentic loop receives a task from outside, executes tools, accumulates observations, and reasons again. With each repetition, the context window fills up. What happens when the context window is full? The simplest response is to stop the loop and return a failure. But in a real long-running agent, that is an unacceptable outcome. A task that took hours to get this far being cut short because of a context limit is worst-case both for user experience and for cost.
+
+**Compaction** is the collective term for any technique that **compresses or restructures** the context in order to continue the loop without stopping it. The core objective is singular: **keep the loop running while retaining the information that matters**.
+
+## When to Trigger Compaction
+
+Two types of thresholds are typically used as triggers.
+
+```text
+┌───────────────────────────────────────────────────────┐
+│               Compaction Trigger Criteria              │
+├───────────────────────────────────────────────────────┤
+│ ① Token count threshold  Start compaction at 70–80%  │
+│    of the full window capacity.                       │
+│    E.g. 128k window → compact at ~90k tokens         │
+│                                                       │
+│ ② Iteration interval    Compact every N iterations   │
+│    E.g. summarize and tidy after every 10 iterations  │
+│                                                       │
+│ → Use whichever condition is met first               │
+└───────────────────────────────────────────────────────┘
+```
+
+Compacting too early loses useful information. Compacting too late risks a context-limit error on the next call. In practice, the 70–80% mark is the most common empirical trigger point.
+
+## Key Compression Techniques
+
+### 1. Conversation Summarization
+
+The most general technique. The current message history is summarized through a separate model call, and the summary replaces the original history.
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+def compact_by_summary(messages: list, keep_recent: int = 5) -> list:
+    """
+    Compress old messages into a summary, retaining the N most recent verbatim.
+    """
+    if len(messages) <= keep_recent:
+        return messages
+
+    old_messages = messages[:-keep_recent]
+    recent_messages = messages[-keep_recent:]
+
+    # Generate summary (separate call, possibly a lighter model)
+    summary_text = summarize(old_messages)
+
+    summary_message = {
+        "role": "system",
+        "content": f"[Summary of prior conversation]\n{summary_text}"
+    }
+
+    return [summary_message] + recent_messages
+```
+
+What should be preserved in the summary? Anthropic recommends: completed actions and their outcomes, key findings, the status of currently in-progress sub-tasks, and important variable values needed for subsequent steps.
+
+### 2. Tool Result Clearing
+
+Not all past tool call results need to be kept. For large file reads or long API responses that the model has already processed, there is no reason to keep the full result in the context.
+
+| Tool Result Type | Handling |
+|-----------------|----------|
+| File read (large) | Replace with key excerpts or a "read complete" marker |
+| API response (repeated) | Keep only the most recent result, drop earlier ones |
+| Test output (cumulative) | Keep only the latest run result |
+| Error messages (resolved) | Mark as resolved and remove |
+
+### 3. Context Reinitialization
+
+The most aggressive technique. The current work state is serialized into an external store (files, structured notes), the context is completely reset, and the saved state is re-injected as a fresh starting point. This approach can minimize information loss — but it requires careful design to correctly serialize and deserialize state.
+
+```python
+# Pseudocode for conceptual illustration; actual API may differ.
+
+def reinitialize_context(task: str, state_file: str) -> list:
+    """
+    Reconstruct context from an external state file.
+    The extreme form of compaction — a complete restart.
+    """
+    # Load the state saved from the previous step
+    saved_state = load_state(state_file)
+
+    # Fresh context: system prompt + compressed state summary
+    new_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": task},
+        {
+            "role": "assistant",
+            "content": f"[Resuming — prior progress]\n{saved_state['progress_summary']}"
+        }
+    ]
+    return new_messages
+```
+
+## How Claude Code and Codex Do It
+
+Looking at how real production agents handle compaction clarifies the underlying design principles.
+
+According to Anthropic's context engineering article, Claude Code handles a full context window by compressing the entire conversation and restarting with a new context. Recent file changes and current task state are always preserved as a priority.
+
+The OpenAI Codex loop article reveals a similar approach. The long-running coding agent avoids accumulating prior tool results; instead, it combines compaction with JIT loading — files are re-read at the point they are actually needed, rather than being pre-loaded.
+
+Both systems share a common principle: **the most recent work state (latest file state, current goal, incomplete sub-tasks) must be preserved even after compaction**.
+
+## The Trade-off Between Compaction and Information Loss
+
+Compaction is not free. Summarization always involves loss, and it is impossible to know in advance which details will become important later. Two strategies help manage this trade-off.
+
+**First, use external storage.** Recording important findings and decisions in files (NOTES.md, checkpoints, etc.) means that even if compaction removes them from the context, they can be retrieved later through a tool call. This strategy is covered in depth in the next chapter (5-4).
+
+**Second, JIT retrieval.** Rather than pre-loading entire files into the context, fetch only the parts that are needed at the moment they are needed. Combining compaction with JIT retrieval keeps the context filled with only "what is needed right now." Chapter 5-5 covers this strategy.
+
+Compaction is an unavoidable reality of loop engineering. No matter how large context windows become, the total amount of information a long-horizon agent generates can exceed them. Designing what information to compress, what to preserve, and in what form — that is what determines whether a loop can sustain itself over time.

@@ -1,0 +1,137 @@
+---
+title: "The Observe-Reason-Act-Evaluate Cycle"
+description: Dissect a single loop iteration into five stages — state, observation, reasoning, action, and evaluation — to understand how to design reliable agentic loops.
+sidebar:
+  order: 1
+learning_objectives:
+  - "Break down one loop iteration into Observe, Reason, Act, and Evaluate stages"
+  - "Explain the relationship between ReAct's Thought-Act-Observe pattern and this cycle"
+  - "Name a concrete failure mode for each stage"
+prerequisites:
+  - "1-2-agent-definition"
+estimated_minutes: 30
+references:
+  - title: "Yao et al. — ReAct: Synergizing Reasoning and Acting in Language Models (arXiv:2210.03629)"
+    url: "https://arxiv.org/abs/2210.03629"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## Why Dissect the Loop?
+
+Saying a loop is "working well" is easy to understand intuitively. But to design a loop you can trust, diagnose where it goes wrong, and improve its performance, you need to break a single iteration into smaller units. This chapter anatomizes one loop cycle into four stages: **Observe → Reason → Act → Evaluate**.
+
+```text
+Structure of One Loop Iteration
+────────────────────────────────────────────────────────
+              ┌──────────────────────────┐
+              │          STATE           │ ← accumulated messages & state
+              └────────────┬─────────────┘
+                           │
+                       [OBSERVE]
+                  collect from environment
+                  (tool results, errors, prior output)
+                           │
+                       [REASON]
+                  LLM: process context →
+                  decide next action or declare done
+                           │
+              ┌────────────┴──────────────┐
+              │  stop_reason == end_turn? │
+              └────────────┬──────────────┘
+                    No     │              Yes → complete
+                       [ACT]
+                  execute tool (code, file, API)
+                           │
+                      [EVALUATE]
+                  fold result back into STATE
+                  check termination conditions
+                           │
+                    next iteration ↺
+────────────────────────────────────────────────────────
+```
+
+## Observe: Collecting from the Environment
+
+In the first iteration, the observation is the user's initial instruction. In every subsequent iteration, it is the result of the previous tool call — an error message, a file's contents, or an API response.
+
+Observations are always **appended to context**. This is how the loop maintains state. File read results, code execution output, and API JSON all accumulate in the message history. The quality of observations determines the quality of the entire loop. If an error message is too vague, the model cannot make the right next decision. If a result is too verbose, it wastes precious context budget.
+
+## Reason: The LLM Call
+
+Reasoning is the LLM call itself. The model processes the accumulated context — the initial instruction plus every observation so far — and decides what to do next. In ReAct terminology, this is the "Thought" step. When the model articulates its intermediate reasoning in text, tracing where things went wrong later becomes much easier.
+
+The Reason stage produces one of two outputs:
+
+- **tool_calls** — the model declares it wants to call a specific tool. The loop proceeds to Act.
+- **end_turn** — the model judges the goal achieved. The loop terminates.
+
+The primary failure mode of the Reason stage is **hallucination**: the model assumes a result without actually observing it, or fabricates the output of a tool it has not called. Preventing this requires the loop structure to force the model to use actual observations as the basis for subsequent reasoning.
+
+## Act: Executing in the Real World
+
+When the model returns `tool_calls`, the harness executes the tool. This is the stage of **actual interaction with the external environment** — reading or writing files, running code, calling APIs. The critical point is that it is the *code*, not the model, that carries out these actions. The model declares what to do; the harness makes it happen.
+
+The primary failure mode of the Act stage is **side effects**. Overwriting a file, sending an email, or modifying a database can be hard or impossible to undo. Production systems must constrain the blast radius of actions and require human approval before destructive operations.
+
+## Evaluate: Folding the Result Back In
+
+The result of the action is folded into state, and termination conditions are checked. Evaluation happens at two levels:
+
+1. **Immediate evaluation**: did the tool succeed or return an error? This result becomes the next iteration's observation.
+2. **Overall goal assessment**: has the original objective been satisfied? This is either the model's judgment (`end_turn`) or an external validator (tests passing, a condition being met).
+
+A weak Evaluate stage causes two problems: the loop fails to stop when it should, or it mistakes an incomplete result for completion — the **premature success** failure mode.
+
+## Mapping to ReAct's Thought-Act-Observe
+
+ReAct's Thought → Act → Observe cycle maps almost one-to-one onto this framework:
+
+| ReAct | This Framework | Role |
+|---|---|---|
+| Thought | Reason | LLM plans the next action in language |
+| Act | Act | Tool executes in the real world |
+| Observe | Observe | Tool result injected into context |
+| (implicit) | Evaluate | Termination check and state update |
+
+The Evaluate stage is not explicitly addressed in the original ReAct paper, but it is one of the most consequential engineering decisions in production loops.
+
+## One Iteration in Code
+
+This is illustrative pseudocode; actual API signatures differ.
+
+```python
+def run_one_iteration(state: AgentState, tools: list) -> AgentState:
+    # ── OBSERVE ───────────────────────────────────────────
+    # state.messages already contains accumulated observations
+
+    # ── REASON ────────────────────────────────────────────
+    response = model.generate(
+        messages=state.messages,
+        tools=tools,
+    )
+
+    if response.stop_reason == "end_turn":
+        # ── EVALUATE (termination) ─────────────────────────
+        return state.mark_complete(response.text)
+
+    # ── ACT ───────────────────────────────────────────────
+    observations = []
+    for tool_call in response.tool_calls:
+        result = execute_tool(tool_call)
+        observations.append({
+            "tool": tool_call.name,
+            "result": result,
+        })
+
+    # ── EVALUATE (fold result into state) ─────────────────
+    new_messages = state.messages + [
+        {"role": "assistant", "content": response.tool_calls},
+        {"role": "tool",      "content": observations},
+    ]
+    return AgentState(messages=new_messages, complete=False)
+```
+
+Call this function inside a `while not state.complete` loop and you have a complete agentic loop. The next chapter zooms in on the Reason stage — specifically the internal reasoning mechanism that operates within each iteration: Chain-of-Thought.

@@ -1,0 +1,113 @@
+---
+title: "AlphaEvolve: The Evolutionary Loop"
+description: Exploring how AlphaEvolve's evolutionary loop — which uses an LLM as a mutation operator — improves mathematical algorithms and TPU kernels.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Explain AlphaEvolve's evolutionary loop structure: population management, LLM mutation, and fitness evaluation"
+  - "Compare using an LLM as a mutation operator against classical evolutionary algorithms"
+  - "Discuss the conditions under which this approach applies and its limitations"
+prerequisites:
+  - "11-1-loop-as-mdp"
+estimated_minutes: 27
+references:
+  - title: "DeepMind — AlphaEvolve: A Gemini-powered coding agent for designing advanced algorithms"
+    url: "https://deepmind.google/discover/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## Running Evolution as a Loop
+
+Most of the agentic loops we have examined follow a single-agent structure: one agent tries, observes, revises, and repeats. AlphaEvolve asks a different question. **What if we maintain many candidate solutions simultaneously and cross-pollinate or mutate the best ones?**
+
+AlphaEvolve, released by DeepMind in 2025, is an evolutionary loop that uses a Gemini model as a **mutation operator**. The results are striking: across a published set of mathematical problems, roughly 20% of runs improved on the previously best known solution, and the system has been used internally at Google to optimize matrix-multiplication kernels for TPUs.
+
+## Structure of the Evolutionary Loop
+
+AlphaEvolve's loop amplifies the classic three-phase evolutionary algorithm — selection, mutation, evaluation — with an LLM.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    AlphaEvolve Evolutionary Loop                 │
+└─────────────────────────────────────────────────────────────────┘
+
+        ┌──────────────────────────────────┐
+        │        Population                │
+        │  [Sol. A] [Sol. B] [Sol. C] ···  │
+        │  fitness:  0.72    0.85    0.61  │
+        └──────────────────┬───────────────┘
+                           │
+                    ① Selection
+                    Pick high-fitness solutions
+                           │
+                           ▼
+        ┌──────────────────────────────────┐
+        │  ② Mutation / Crossover (LLM)    │
+        │                                  │
+        │  "Improve this algorithm or      │
+        │   combine two solutions"         │
+        │   → LLM generates new code       │
+        └──────────────────┬───────────────┘
+                           │
+                    ③ Fitness Evaluation
+                    Run automated verifier
+                    (tests, benchmarks, numerical checks)
+                           │
+                           ▼
+        ┌──────────────────────────────────┐
+        │     Population Update            │
+        │  Superior new solution → added   │
+        │  Inferior solution → removed     │
+        │                                  │
+        │  (maintain maximum population)   │
+        └──────────────────────────────────┘
+                    loop repeats
+```
+
+In this structure, the **LLM's role is exploration**. Instead of random bit-flips, the LLM reads and understands the existing solutions before generating meaningful variants: "improve cache locality in this sort", "blend two matrix factorization techniques." Natural-language-level mutations become possible.
+
+## How LLM-Based Mutation Differs from Classical Evolutionary Algorithms
+
+Classical genetic algorithms rely on random mutations. In complex code, random mutations mostly produce code that won't compile or performs worse — the search space is too wide for naive random walk to converge quickly.
+
+| Comparison | Classical Evolutionary Algorithm | AlphaEvolve (LLM mutation) |
+|---|---|---|
+| Mutation method | Random bit/symbol changes | LLM generates semantically meaningful edits |
+| Rate of valid candidates | Low (many compile failures) | High (syntactically correct code) |
+| Search direction | Blind | Informed by prior solution context |
+| Evaluations needed | Very many | Relatively fewer |
+| Applicable conditions | Simple, representable problems | Problems where mutations can be expressed in natural language |
+
+## The Fitness Function: the Key That Closes the Loop
+
+For the loop to converge meaningfully in AlphaEvolve, an **automated fitness evaluator** is essential. Without it, the loop has no direction.
+
+For mathematical problems, fitness is cleanly defined: "does this matrix multiplication achieve the same result with fewer multiply operations than the current best?" For TPU kernel optimization, measured throughput on real hardware serves as fitness. Both can be evaluated automatically without human intervention.
+
+This is what determines AlphaEvolve's applicable scope. **Without a mechanically measurable objective function, an evolutionary loop cannot function.**
+
+## Connecting Back: AlphaEvolve in MDP Terms
+
+Restated in the MDP vocabulary from Section 11-1, AlphaEvolve explores the outer-loop policy `π` at the **population level**:
+
+- **State**: Current population (the set of candidate solutions)
+- **Action**: LLM mutates and crosses over selected solutions
+- **Reward**: Fitness function score
+- **Policy improvement**: Higher-fitness solutions are retained in the population
+
+Unlike single-agent sequential attempts, an evolutionary loop conducts **parallel search**. Good solutions coexist, and their ideas cross-pollinate each other continuously.
+
+## Limitations and Cautions
+
+AlphaEvolve is powerful but not universally applicable.
+
+First, **evaluation cost is high**. Assessing hundreds to thousands of candidates requires real benchmark infrastructure. When evaluation demands hardware — as with TPU kernels — the infrastructure cost is substantial.
+
+Second, there is a **memory cost for maintaining the population**. Each candidate solution carries its full code, so large populations consume considerable storage and management overhead.
+
+Third, LLM mutation always produces syntactically valid code, but it does not guarantee meaningful improvement. The evolutionary process can converge to a **local optimum**.
+
+The next chapter goes one step further than AlphaEvolve. Instead of evolving algorithms or solutions, the agent modifies **its own scaffold code** — this is the Darwin Gödel Machine.

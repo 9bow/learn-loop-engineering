@@ -1,0 +1,120 @@
+---
+title: "Darwin Gödel Machine: The Self-Modifying Agent"
+description: Examining the self-modification loop of the Darwin Gödel Machine, in which an agent iteratively rewrites its own scaffold code and verifies improvements on a benchmark.
+sidebar:
+  order: 4
+learning_objectives:
+  - "Explain the mechanism by which the Darwin Gödel Machine evolves the agent scaffold itself"
+  - "Describe the loop structure that produced the improvement from 20% to 50% on SWE-bench"
+  - "Discuss the safety guarantees and realistic limits of a self-modification loop"
+prerequisites:
+  - "11-3-alphaevolve"
+estimated_minutes: 30
+references:
+  - title: "Zhang et al. — Darwin Gödel Machine (arXiv:2505.22954)"
+    url: "https://arxiv.org/abs/2505.22954"
+    accessed: "2026-06-30"
+  - title: "DeepMind — AlphaEvolve: A Gemini-powered coding agent for designing advanced algorithms"
+    url: "https://deepmind.google/discover/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/"
+    accessed: "2026-06-30"
+---
+
+## What Is Self-Modification?
+
+AlphaEvolve evolves algorithmic solutions. But what if we evolved not the algorithm, but the **agent's own code**? That is the question the **Darwin Gödel Machine (DGM)** asks.
+
+The classical Gödel Machine concept posits an AI capable of rewriting its own source code. DGM (Zhang et al., 2025) realizes this idea practically: the agent iteratively modifies its own scaffold code on a coding benchmark (SWE-bench) and then verifies on that same benchmark whether performance improved. **Only modifications that pass verification are adopted.** This is the mechanism that ensures safety.
+
+The results are striking. **On SWE-bench Verified, the system improved from an initial 20.0% to 50.0% through an automated self-modification loop.**
+
+## The DGM Self-Modification Loop
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│               Darwin Gödel Machine Self-Modification Loop        │
+└──────────────────────────────────────────────────────────────────┘
+
+  Start: initial agent scaffold code (v0)
+         │
+         ▼
+  ┌─────────────────────────────────┐
+  │  ① Measure current performance  │
+  │     Run k tasks on SWE-bench    │
+  │     Record pass rate            │
+  └──────────────┬──────────────────┘
+                 │
+                 ▼
+  ┌─────────────────────────────────┐
+  │  ② Propose scaffold edit        │
+  │     LLM analyzes current code   │
+  │     Identifies improvable areas │
+  │     → Generates new scaffold    │
+  └──────────────┬──────────────────┘
+                 │
+                 ▼
+  ┌─────────────────────────────────┐
+  │  ③ Re-benchmark modified agent  │
+  │     Re-run same SWE-bench tasks │
+  │     Measure new pass rate       │
+  └──────────────┬──────────────────┘
+                 │
+          Better?  ├── Yes ──▶ Adopt modification (vN → vN+1)
+                 │
+                 └── No  ──▶ Discard, try another mutation
+
+  (After sufficient iterations, select best version)
+```
+
+The key insight here is that **the benchmark plays the role of the verifier that closes the loop**. The agent cannot bias the benchmark in its own favor — the evaluation criterion (SWE-bench tasks) is fixed outside the agent.
+
+## What Gets Modified: Levels of the Scaffold
+
+In DGM, what the agent modifies is the **scaffold code it uses to solve problems**. This spans several layers.
+
+| Modification Layer | Examples |
+|---|---|
+| Tool interface | Timeout value for the `bash` tool, output parsing logic |
+| Context management | Which files to read first, summarization strategy |
+| Error handling | Retry logic for specific error patterns |
+| Task decomposition | How to break large tasks into subtasks |
+| Verification strategy | Which tests to run first after a code change |
+
+The agent experiments with these layers, validates through the benchmark, and accumulates beneficial mutations. Over tens to hundreds of generations, a scaffold specialized for a particular benchmark evolves automatically.
+
+## Comparison with AlphaEvolve
+
+Both use an evolutionary loop, but DGM **evolves a different target**.
+
+```text
+┌────────────────────┬──────────────────────┬──────────────────────┐
+│                    │    AlphaEvolve        │ Darwin Gödel Machine │
+├────────────────────┼──────────────────────┼──────────────────────┤
+│ Evolution target   │ Algorithm code        │ Agent scaffold code  │
+│ Evaluation crit.   │ Math perf, throughput │ Coding benchmark %   │
+│ Population struct  │ Explicit population   │ Version lineage      │
+│ Mutation unit      │ Single algorithm      │ Agent components     │
+│ Self-reference     │ None                  │ Yes (rewrites self)  │
+└────────────────────┴──────────────────────┴──────────────────────┘
+```
+
+AlphaEvolve builds better tools (algorithms). DGM improves the **craftsman (agent) who uses the tools**.
+
+## Safety Guarantee: Never Adopt Without Verification
+
+The biggest concern with a self-modifying agent is safety. Will the agent spiral through endless self-rewrites, drift away from its goal, or degrade?
+
+DGM's core safety mechanism is the **verify-before-adopt** principle. Every scaffold modification is adopted only when it demonstrably improves performance on the same benchmark. Mutations that fail verification are discarded. This plays exactly the role that fitness evaluation plays in AlphaEvolve.
+
+There are limits, of course. **Benchmark overfitting** is possible: the agent may specialize so narrowly on SWE-bench that performance on genuinely diverse coding tasks degrades. Scaffold modifications can also create unintended side effects — designing verification that fully rules these out remains an open problem.
+
+## The Loop Engineer's Perspective
+
+The most important insight DGM offers is that **the loop itself can become the object of improvement**. Throughout this course we have treated the loop as something the engineer designs. DGM points toward loops that design themselves.
+
+Two practical takeaways emerge.
+
+First, **meta-loop design**. Separate the inner loop (solving problems) from the outer loop (improving the scaffold), and define the outer loop's verification criterion clearly. That separation is the foundation for automated improvement.
+
+Second, **the importance of the benchmark**. A self-modification loop depends entirely on the quality of its evaluation criterion. A poor benchmark sends the loop converging in the wrong direction. What you choose to measure determines where the loop goes.
+
+The next chapter examines GRPO and DeepSeek-R1, where the target of the loop drops one level further still: into the **model weights themselves**.

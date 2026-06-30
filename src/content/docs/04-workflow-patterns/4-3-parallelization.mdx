@@ -1,0 +1,156 @@
+---
+title: "Parallelization: Sectioning과 Voting"
+description: 독립 작업을 동시에 실행하는 Sectioning과 다수결로 신뢰도를 높이는 Voting, 두 병렬화 전략을 살펴봅니다.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Sectioning과 Voting의 차이를 구조적으로 설명할 수 있다"
+  - "병렬화가 적합한 태스크의 조건과 그렇지 않은 경우를 판단할 수 있다"
+  - "Voting과 Self-Consistency의 관계를 Workflow 관점에서 이해한다"
+prerequisites:
+  - "4-1-prompt-chaining"
+estimated_minutes: 28
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Wang et al. — Self-Consistency Improves Chain of Thought Reasoning (arXiv:2203.11171)"
+    url: "https://arxiv.org/abs/2203.11171"
+    accessed: "2026-06-30"
+---
+
+## 직렬 처리의 병목을 깨다
+
+Prompt Chaining은 각 단계가 이전 단계의 출력에 의존할 때 적합하다. 그러나 많은 실무 태스크에서 하위 작업들은 서로 독립적이다. "세 개 도시의 날씨를 동시에 조회하라"는 태스크에서 서울 날씨를 먼저 조회한 뒤 파리를 조회할 이유가 없다. 직렬로 처리하면 총 지연이 각 작업 지연의 합이 되지만, 병렬로 처리하면 가장 느린 작업 하나의 지연만 기다리면 된다.
+
+Anthropic의 Building Effective AI Agents는 병렬화를 두 가지 하위 패턴으로 구분한다. **Sectioning**은 큰 작업을 독립된 조각으로 나눠 동시에 처리하고 결과를 합친다. **Voting**은 같은 작업을 여러 번 독립 실행해 다수결로 신뢰도를 높인다.
+
+## Sectioning: 분할 후 병합
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│                    Sectioning 흐름                              │
+│                                                                │
+│   대형 작업 입력                                                │
+│         │                                                      │
+│         ▼                                                      │
+│   분할 (Splitter)                                               │
+│   ┌─────────────────────────────────────────────────────┐     │
+│   │  섹션 A  │  섹션 B  │  섹션 C  │  섹션 D  │  섹션 E │     │
+│   └─────────────────────────────────────────────────────┘     │
+│         │         │         │         │         │              │
+│         ▼         ▼         ▼         ▼         ▼              │
+│      [LLM]     [LLM]     [LLM]     [LLM]     [LLM]           │
+│     (병렬 실행 — 모두 동시 시작)                                 │
+│         │         │         │         │         │              │
+│         ▼         ▼         ▼         ▼         ▼              │
+│   결과 A    결과 B    결과 C    결과 D    결과 E               │
+│         │                                                      │
+│         ▼                                                      │
+│   합병 (Aggregator): 결과 A~E를 하나로 종합                     │
+│         │                                                      │
+│         ▼                                                      │
+│   최종 출력                                                     │
+└────────────────────────────────────────────────────────────────┘
+```
+
+Sectioning의 전형적 사용 사례는 긴 문서 처리다. 100페이지 보고서를 한 번에 요약하면 컨텍스트 한계에 부딪히고 중간 내용이 "중간에 묻히는" 현상이 생긴다. 대신 10페이지씩 10개 섹션으로 나눠 병렬로 요약한 뒤, 10개 요약을 합쳐 최종 요약을 만드면 더 균일한 품질을 얻을 수 있다.
+
+**중요한 전제**: 섹션들이 실제로 독립적이어야 한다. 섹션 B의 요약이 섹션 A의 내용을 참조해야 한다면 병렬화가 불가능하다. 이 경우에는 Prompt Chaining이나 Orchestrator-Workers가 더 적합하다.
+
+## Voting: 다수결로 신뢰도 확보
+
+```text
+┌────────────────────────────────────────────────────────────────┐
+│                    Voting 흐름                                  │
+│                                                                │
+│   동일 태스크 입력                                              │
+│         │                                                      │
+│         ├─────────────────┬─────────────────┐                 │
+│         │                 │                 │                 │
+│         ▼                 ▼                 ▼                 │
+│      [LLM #1]          [LLM #2]         [LLM #3]            │
+│     답: "승인"          답: "거부"        답: "승인"           │
+│         │                 │                 │                 │
+│         └─────────────────┴─────────────────┘                 │
+│                           ▼                                    │
+│            집계 (Aggregator): 승인 2 vs 거부 1                 │
+│                           ▼                                    │
+│                   최종 결정: "승인"                             │
+└────────────────────────────────────────────────────────────────┘
+```
+
+Voting은 3장 섹션에서 다룬 Self-Consistency와 근본적으로 같은 아이디어를 **워크플로 수준**에서 구현한 것이다. Self-Consistency는 단일 에이전트가 같은 문제를 여러 번 샘플링해 다수결을 취한다. Workflow Voting은 여러 독립 LLM 호출(또는 다른 온도 설정, 다른 시스템 프롬프트)을 병렬로 실행해 결과를 집계한다.
+
+Voting이 특히 효과적인 시나리오는 **분류 및 이진 결정**이다. 콘텐츠 안전성 판단, 승인/거부 결정, 품질 기준 충족 여부 같은 이진 출력에서 다수결은 단일 판단보다 일관적으로 신뢰할 수 있다.
+
+## Python 구현 예시
+
+개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+
+```python
+import asyncio
+from collections import Counter
+
+async def sectioning(model, task: str, sections: list[str]) -> str:
+    """
+    독립 섹션을 병렬로 처리한 뒤 합병.
+    """
+    async def process_section(section: str) -> str:
+        prompt = f"다음 섹션을 요약하라:\n\n{section}"
+        result = await model.generate_async(
+            [{"role": "user", "content": prompt}]
+        )
+        return result.text
+
+    # 모든 섹션을 동시에 처리
+    summaries = await asyncio.gather(*[
+        process_section(s) for s in sections
+    ])
+
+    # 합병
+    aggregator_prompt = (
+        f"원래 태스크: {task}\n\n"
+        "다음 섹션별 요약들을 하나의 일관된 최종 요약으로 합쳐라:\n\n" +
+        "\n\n".join(f"섹션 {i+1}:\n{s}" for i, s in enumerate(summaries))
+    )
+    final = await model.generate_async(
+        [{"role": "user", "content": aggregator_prompt}]
+    )
+    return final.text
+
+
+async def voting(
+    model,
+    question: str,
+    n_votes: int = 5,
+    temperature: float = 0.7,
+) -> str:
+    """
+    동일 질문을 N번 독립 실행해 다수결.
+    """
+    async def single_vote() -> str:
+        result = await model.generate_async(
+            [{"role": "user", "content": question}],
+            temperature=temperature,
+        )
+        return result.text.strip()
+
+    votes = await asyncio.gather(*[single_vote() for _ in range(n_votes)])
+    counter = Counter(votes)
+    winner, count = counter.most_common(1)[0]
+    return winner
+```
+
+## 병렬화의 비용 구조
+
+병렬화는 지연을 줄이지만 **비용은 줄이지 않는다**. N개 병렬 실행의 총 토큰 비용은 N배다. 따라서 병렬화는 다음 두 가지가 동시에 성립할 때 최적이다.
+
+| 조건 | 이유 |
+|------|------|
+| 지연 감소가 비용보다 중요 | 실시간 처리, SLA 요건 |
+| 하위 작업이 진정으로 독립적 | 섹션 간 또는 투표 간 상호 의존 없음 |
+
+병렬화 결과를 합치는 **Aggregator**도 추가 LLM 호출이다. 합병 비용을 포함한 총 비용을 계산해야 한다.
+
+다음 챕터에서는 Sectioning보다 더 동적인 분해를 다루는 Orchestrator-Workers 패턴을 살펴본다. 오케스트레이터가 실행 중에 서브태스크를 결정하고 워커에게 동적으로 할당하는 방식이다.

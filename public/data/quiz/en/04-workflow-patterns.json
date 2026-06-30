@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "What is the role of a Gate (validation checkpoint) in Prompt Chaining?",
+    "options": [
+      "It validates whether the output of a previous step is suitable as input for the next step, and halts or retries if it falls short",
+      "It automatically selects the model to use at each step",
+      "It decides whether to use parallel processing",
+      "It tracks the total execution cost"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 4-1 explains that a Gate is a quality validation checkpoint between steps that halts the pipeline or triggers a retry if the previous step's output does not meet the required standard."
+  },
+  {
+    "id": "q2",
+    "question": "In the Routing pattern, why must the classifier be fast and cheap?",
+    "options": [
+      "Because a slow classifier causes latency across the entire pipeline",
+      "Because using a frontier model as the classifier eliminates the cost advantage of routing",
+      "Because regulations require that only lightweight models be used for classifiers",
+      "Because a faster routing step also improves the performance of specialized pipelines"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 4-2 explains that since the core purpose of routing is cost and performance optimization, using an expensive model for the classifier eliminates the savings benefit."
+  },
+  {
+    "id": "q3",
+    "question": "What are the two sub-patterns of Parallelization?",
+    "options": [
+      "Splitting and Merging",
+      "Sectioning and Voting",
+      "Routing and Chaining",
+      "Dispatching and Aggregating"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 4-3 explains that the two sub-patterns of Parallelization are Sectioning (dividing input into chunks for parallel processing and then combining results) and Voting (running the same input multiple times and deciding by majority vote)."
+  },
+  {
+    "id": "q4",
+    "question": "What is the key difference between the Orchestrator-Workers pattern and simple Parallelization (Sectioning)?",
+    "options": [
+      "Orchestrator-Workers can only run sequentially",
+      "In Orchestrator-Workers, subtasks are created dynamically based on previous worker results",
+      "Orchestrator-Workers does not use an LLM",
+      "Orchestrator-Workers must use only a single model"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 4-4 explains that while Sectioning has a fixed split decided in advance, in Orchestrator-Workers the orchestrator dynamically determines the next subtask after reviewing previous worker results."
+  },
+  {
+    "id": "q5",
+    "question": "What does Goodhart's Law mean when applied to agentic loops?",
+    "options": [
+      "More data always produces better results",
+      "When a measure becomes a target, it ceases to be a good measure",
+      "An agent always chooses the optimal path",
+      "Longer context improves model performance"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 4-5 invokes Goodhart's Law to warn about the risk of reward hacking, where an agent optimizes for the evaluation metric itself rather than the actual goal."
+  },
+  {
+    "id": "q6",
+    "question": "In the Evaluator-Optimizer pattern, why are Generator and Evaluator separated into distinct calls?",
+    "options": [
+      "Because the two roles require different models",
+      "To prevent the sycophantic critique problem that occurs when the same model generates and evaluates simultaneously",
+      "To reduce cost by half",
+      "To enable parallel execution"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 4-5 explains that when a model evaluates its own output, it tends to miss real problems due to sycophantic critique, so generation (Generator) and evaluation (Evaluator) are separated."
+  },
+  {
+    "id": "q7",
+    "question": "What is the core advantage of Prompt Chaining over a single complex prompt?",
+    "options": [
+      "It completes the same task with fewer LLM calls",
+      "It is always faster because parallel execution is possible",
+      "It performs complex tasks without external tools",
+      "Each step's output can be validated in the middle, making it easier to pinpoint failures and control quality"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 4-1 states that the advantage of Prompt Chaining is that intermediate validation of each step's output is possible, making debugging easier and enabling per-step quality control."
+  },
+  {
+    "id": "q8",
+    "question": "What prerequisite must be confirmed before applying the Sectioning pattern?",
+    "options": [
+      "All sections must be of equal size",
+      "The sections must actually be independent of each other (no cross-references)",
+      "The same model family must be used",
+      "There must be at least five sections"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 4-3 warns that Sectioning is only valid when sections are independent, and that consistency breaks down when combining results if sections cross-reference each other."
+  },
+  {
+    "id": "q9",
+    "question": "Which of the following is NOT included in the five workflow patterns defined by Anthropic?",
+    "options": [
+      "Prompt Chaining",
+      "Routing",
+      "Reflexion",
+      "Evaluator-Optimizer"
+    ],
+    "answer": 2,
+    "explanation": "The section introduction (Chapter 4-0) states that Anthropic's five workflow patterns are Prompt Chaining, Routing, Parallelization, Orchestrator-Workers, and Evaluator-Optimizer. Reflexion is a single-agent pattern."
+  },
+  {
+    "id": "q10",
+    "question": "What is the 'Evaluator Drift' failure mode in Evaluator-Optimizer?",
+    "options": [
+      "A phenomenon where the evaluator gradually aligns with the generator's standards and scores continuously rise",
+      "A phenomenon where the evaluator is too strict and the loop never terminates",
+      "A phenomenon where the evaluator goes offline",
+      "A communication latency between the evaluator and generator"
+    ],
+    "answer": 0,
+    "explanation": "Chapter 4-5 describes Evaluator Drift as a phenomenon where, as feedback repeats, the evaluator begins to align with the generator's standards, scores gradually rise, and the loop terminates even without real quality improvement."
+  },
+  {
+    "id": "q11",
+    "question": "Why does the Voting pattern run the same prompt multiple times?",
+    "options": [
+      "To split execution costs",
+      "To compensate for the model's knowledge limitations",
+      "To leverage the probabilistic nature of LLMs and obtain a more reliable answer than a single run through sampling diversity",
+      "To compare different models"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 4-3 explains that Voting reduces errors in individual runs by sampling the same task multiple times and deciding by majority vote — the same principle as Self-Consistency."
+  },
+  {
+    "id": "q12",
+    "question": "How does 'soft routing' differ from 'hard routing' in the Routing pattern?",
+    "options": [
+      "Soft routing is rule-based; hard routing is LLM-based",
+      "Soft routing blends the results of multiple pipelines with weighted scores, while hard routing selects only one pipeline",
+      "Soft routing is always cheaper",
+      "Soft routing cannot run in parallel"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 4-2 explains that hard routing has the classifier select a single pipeline, while soft routing runs multiple pipelines and blends results with confidence-based weights."
+  },
+  {
+    "id": "q13",
+    "question": "Which of the following is NOT an element of the task spec the orchestrator sends to workers in the Orchestrator-Workers pattern?",
+    "options": [
+      "Task type",
+      "Input data",
+      "Expected output schema",
+      "Worker execution budget"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 4-4 lists the elements of a task spec sent from the orchestrator to workers as task_id, type, input, and expected_output_schema. Worker execution budget is not included."
+  }
+]

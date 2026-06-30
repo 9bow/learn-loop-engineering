@@ -1,0 +1,158 @@
+[
+  {
+    "id": "q1",
+    "question": "What was the absolute performance improvement of ReAct (Yao et al., ICLR 2023) on ALFWorld compared to the reinforcement learning baseline?",
+    "options": [
+      "+10%",
+      "+20%",
+      "+34%",
+      "+50%"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 3-1 states that ReAct achieved an absolute +34% improvement over the RL baseline on ALFWorld and +10% on WebShop."
+  },
+  {
+    "id": "q2",
+    "question": "Which description of the Thought stage in the ReAct pattern is correct?",
+    "options": [
+      "It is the stage that actually calls tools",
+      "It is the model's linguistic working memo — internal reasoning that does not invoke a tool",
+      "It is the stage that processes external observation results",
+      "It is the stage that returns the final answer to the user"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 3-1 describes the Thought stage as 'the model's linguistic working memo that is generated as tokens but does not call a tool.'"
+  },
+  {
+    "id": "q3",
+    "question": "What is added to the episodic memory in the Reflexion pattern?",
+    "options": [
+      "The original task description",
+      "All tool results from the previous iteration",
+      "A verbal reflection describing what went wrong in the previous attempt and how to approach it differently next time",
+      "A compressed summary of the current context window"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 3-2 explains that Reflexion's episodic memory is a natural-language record of what was learned from a previous failure, and this reflection is injected into the system prompt of the next attempt."
+  },
+  {
+    "id": "q4",
+    "question": "What pass@1 success rate did Reflexion achieve on the HumanEval coding benchmark?",
+    "options": [
+      "74%",
+      "80%",
+      "91%",
+      "98%"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 3-2 states that Reflexion achieved 91% pass@1 on the HumanEval coding task."
+  },
+  {
+    "id": "q5",
+    "question": "What is the 'sycophantic critique' failure mode in the Self-Refine pattern?",
+    "options": [
+      "The model refuses to critique itself at all",
+      "The model's tendency to evaluate its own output overly positively even when there are real problems",
+      "The critique is too long and specific",
+      "Performance degrades after revision"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 3-4 explains that the representative failure mode of Self-Refine is 'sycophantic critique,' where the model tends not to point out substantive problems and evaluates its own output too positively."
+  },
+  {
+    "id": "q6",
+    "question": "What success rate did Tree of Thoughts (ToT) BFS search achieve on the Game of 24 puzzle?",
+    "options": [
+      "4%",
+      "26%",
+      "52%",
+      "74%"
+    ],
+    "answer": 3,
+    "explanation": "Chapter 3-5 states that standard CoT achieved only 4% on the Game of 24 puzzle, while ToT BFS search achieved 74%."
+  },
+  {
+    "id": "q7",
+    "question": "How is Graph of Thoughts (GoT) structurally different from Tree of Thoughts (ToT)?",
+    "options": [
+      "GoT uses DFS instead of BFS",
+      "GoT uses a DAG (directed acyclic graph) structure instead of a tree, allowing thoughts to be merged and recombined",
+      "GoT does not use a State Evaluator",
+      "GoT operates with a single LLM call"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 3-5 explains that GoT extends the tree structure of ToT into a DAG (Directed Acyclic Graph), enabling multiple thought paths to be merged and recombined."
+  },
+  {
+    "id": "q8",
+    "question": "In Plan-and-Execute, when is Replanning necessary?",
+    "options": [
+      "When all steps have completed successfully",
+      "When an unexpected error occurs during execution and the original plan no longer matches reality",
+      "When too many steps are generated during the planning stage",
+      "When the Executor cannot understand the plan"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 3-3 mentions 'Stale Plan' as a failure mode of Plan-and-Execute, stating that replanning is necessary when reality diverges from the plan during execution."
+  },
+  {
+    "id": "q9",
+    "question": "What is the key characteristic of the Planner stage in the ReWOO pattern?",
+    "options": [
+      "It plans sequentially while observing tool results",
+      "It constructs the entire execution plan upfront without any tool observations",
+      "It restricts the plan to using only a single tool",
+      "It always includes a Replanning stage"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 3-6 explains that the characteristic of ReWOO is that the Planner constructs the full plan first without Observations, referencing future results with placeholders like #E1, #E2."
+  },
+  {
+    "id": "q10",
+    "question": "By how many times did ReWOO improve token efficiency compared to ReAct on HotpotQA?",
+    "options": [
+      "2×",
+      "3×",
+      "5×",
+      "10×"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 3-6 states that ReWOO achieved approximately 5× token efficiency improvement and +4% performance improvement over ReAct on HotpotQA."
+  },
+  {
+    "id": "q11",
+    "question": "What core inefficiency in ReAct does LLMCompiler address?",
+    "options": [
+      "Token waste due to context accumulation",
+      "Execution latency from sequential execution of tool calls that are mutually independent",
+      "Frequency of hallucinations",
+      "Tool selection errors"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 3-6 explains that LLMCompiler represents independent tool calls as a DAG and executes them in parallel, resolving ReAct's sequential execution latency."
+  },
+  {
+    "id": "q12",
+    "question": "How is Reflexion's 'verbal reinforcement learning' different from standard RL?",
+    "options": [
+      "It requires more training data",
+      "It learns from previous failures using only a verbal reflection, without updating model parameters",
+      "It requires separately learning a reward function",
+      "It requires ensembling multiple models"
+    ],
+    "answer": 1,
+    "explanation": "Chapter 3-2 explains that Reflexion learns by storing a natural-language reflection in episodic memory and carrying it into the next attempt, without modifying model weights."
+  },
+  {
+    "id": "q13",
+    "question": "What average absolute performance improvement did Self-Refine achieve across multiple benchmarks?",
+    "options": [
+      "~5%",
+      "~10%",
+      "~20%",
+      "~40%"
+    ],
+    "answer": 2,
+    "explanation": "Chapter 3-4 states that Self-Refine achieved approximately 20% absolute performance improvement across multiple tasks."
+  }
+]

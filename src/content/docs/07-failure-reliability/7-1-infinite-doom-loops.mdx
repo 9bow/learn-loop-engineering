@@ -1,0 +1,191 @@
+---
+title: "무한 루프와 둠 루프"
+description: 에이전트가 멈추지 않거나 같은 실패를 반복하는 두 가지 루프 병리와 그 대응 전략을 살펴봅니다.
+sidebar:
+  order: 1
+learning_objectives:
+  - "무한 루프와 둠 루프의 차이를 구분하고 각각의 발생 원인을 설명할 수 있다"
+  - "하드 캡, no-progress 감지, stuck 도구 등 주요 방어 메커니즘을 구현할 수 있다"
+  - "재시도 시 전략 변경이 왜 필수인지 근거를 제시할 수 있다"
+prerequisites:
+  - "6-1-stopping-conditions"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Effective harnesses for long-running agents"
+    url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+---
+
+## 루프가 멈추지 않을 때
+
+이전 챕터(6-1)에서 종료 조건의 이론을 배웠다. 그런데 이론이 제대로 구현되지 않거나 예상치 못한 상황이 발생하면 루프는 멈추지 않는다. 에이전틱 루프에서 발생하는 "멈추지 않는 루프"는 크게 두 가지 병리로 나뉜다. **무한 루프(infinite loop)** 와 **둠 루프(doom loop)** 다.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    두 가지 루프 병리 비교                         │
+├──────────────────────┬──────────────────────────────────────────┤
+│ 병리                 │ 특징                                      │
+├──────────────────────┼──────────────────────────────────────────┤
+│ 무한 루프             │ 종료 조건 자체가 없거나 도달 불가           │
+│ (infinite loop)      │ 예: max_iter 미설정, stop_reason 무시     │
+├──────────────────────┼──────────────────────────────────────────┤
+│ 둠 루프               │ 종료를 의도하지만 같은 실패를 반복         │
+│ (doom loop)          │ 예: 오류 → 재시도 → 동일 오류 → 재시도    │
+└──────────────────────┴──────────────────────────────────────────┘
+```
+
+## 무한 루프: 종료가 없는 루프
+
+무한 루프는 구조적 결함에서 발생한다. 가장 흔한 원인은 세 가지다.
+
+**첫째, 종료 조건 미설정.** `while True:` 루프에 `break` 조건을 달지 않거나 `max_iterations` 캡을 생략하면, 모델이 `end_turn`을 선언하지 않는 한 루프는 영원히 돈다. 단순 망각처럼 보이지만 프로덕션 코드에서도 심심치 않게 등장하는 실수다.
+
+**둘째, 자기강화 패턴(self-reinforcing pattern).** 어떤 도구를 호출하면 그 결과가 항상 다음 호출을 유도하는 구조가 만들어질 때 발생한다. 예를 들어 "다음 파일을 분석하라"는 도구 결과가 항상 "다음으로 분석할 파일"을 제시한다면, 입력 목록이 고갈되기 전까지 루프는 멈추지 않는다.
+
+**셋째, 종료 신호 누락.** LLM API의 `stop_reason`을 확인하지 않으면 모델이 이미 `end_turn`을 선언했음에도 루프가 계속 돌아갈 수 있다. API 응답 구조에 대한 이해 부족이 이 실수를 만든다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+MAX_ITER = 50
+
+for iteration in range(MAX_ITER):
+    response = model.generate(messages, tools=tools)
+
+    if response.stop_reason == "end_turn":
+        break  # 모델이 완료를 선언하면 즉시 탈출
+
+    for call in response.tool_calls:
+        result = run_tool(call)
+        messages.append(tool_result(call.id, result))
+else:
+    # for-else: MAX_ITER를 모두 소진한 경우에만 실행
+    raise RuntimeError(f"루프가 {MAX_ITER}회 반복 한계에 도달했습니다")
+```
+
+파이썬의 `for-else` 패턴은 정상 종료(`break`)와 한계 초과를 깔끔하게 구분한다. **하드 캡(hard cap)** 은 비용 폭발과 무한 루프를 동시에 막는 가장 단순하고 확실한 첫 번째 방어선이다.
+
+## 둠 루프: 같은 실패를 반복하는 루프
+
+둠 루프는 더 교묘하다. 루프는 종료를 향해 가고 있다고 모델이 믿지만 실제로는 같은 접근을 반복할 뿐 진전이 없다. 흔한 패턴은 다음과 같다.
+
+- 파일 쓰기 실패 → "다시 시도" → 같은 권한 오류 → "다시 시도" → ...
+- 테스트 실패 → 코드 수정 → 다른 테스트 실패 → 원래 테스트 실패 → ...
+- API 요청 타임아웃 → 재시도 → 타임아웃 → 재시도 → ...
+
+이 경우 모델은 "진전하고 있다"는 환상 속에서 비용을 소진한다. 둠 루프의 핵심 특성은 **각 이터레이션의 출력이 이전과 사실상 동일**하다는 것이다.
+
+```text
+둠 루프 감지 흐름: no-progress 검사
+
+  이터레이션 N 출력 해시 ─────┐
+                               ├── 동일? ──▶ stuck_count += 1
+  이터레이션 N+1 출력 해시 ───┘                    │
+                                                    ▼
+                                         stuck_count ≥ 임계치?
+                                         ├── Yes ──▶ 전략 전환 메시지 주입
+                                         └── No  ──▶ 정상 계속
+```
+
+## no-progress 감지 구현
+
+출력 해시를 비교하는 no-progress 감지가 가장 실용적인 둠 루프 방지책이다. 모델 응답의 텍스트 내용을 해시하여 이전 이터레이션과 비교한다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+import hashlib
+
+def content_hash(response):
+    texts = [b.text for b in response.content if hasattr(b, "text")]
+    return hashlib.md5("".join(texts).encode()).hexdigest()
+
+prev_hash = None
+stuck_count = 0
+STUCK_THRESHOLD = 3
+
+for iteration in range(MAX_ITER):
+    response = model.generate(messages, tools=tools)
+
+    h = content_hash(response)
+    if h == prev_hash:
+        stuck_count += 1
+    else:
+        stuck_count = 0
+    prev_hash = h
+
+    if stuck_count >= STUCK_THRESHOLD:
+        messages.append(
+            system_message(
+                "이전 접근 방식이 반복되고 있습니다. "
+                "완전히 다른 방법을 시도하세요. "
+                "막혔다면 report_stuck 도구를 호출하세요."
+            )
+        )
+        stuck_count = 0
+
+    if response.stop_reason == "end_turn":
+        break
+```
+
+중요한 점은 `stuck` 상태 감지 후 단순히 루프를 중단하는 것보다 **전략 변경을 요청하는 메시지를 주입**하는 것이 더 나은 경우가 많다는 것이다. 동일 오류를 동일 방식으로 재시도하면 결과는 동일하다. 재시도는 반드시 이전과 **다른 접근**을 동반해야 한다. 이는 7-4챕터의 크래시-온리 설계와 맥을 같이한다.
+
+## stuck 도구: 모델이 스스로 신호를 보내는 탈출구
+
+하네스 수준의 no-progress 감지와 함께, 모델에게 "막혔다"고 선언할 수 있는 특수 도구를 제공하는 것도 효과적이다.
+
+```python
+# 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다
+stuck_tool = {
+    "name": "report_stuck",
+    "description": (
+        "현재 접근 방식으로는 더 이상 진전이 불가능하다고 판단될 때 호출합니다. "
+        "최소 두 가지 다른 방법을 시도한 뒤에만 사용하세요."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": "막힌 이유와 시도한 접근 방법 요약"
+            },
+            "suggested_pivot": {
+                "type": "string",
+                "description": "다음으로 시도할 수 있는 다른 방향 (선택 사항)"
+            }
+        },
+        "required": ["reason"]
+    }
+}
+```
+
+이 도구를 통해 모델이 `report_stuck`을 호출하면 오케스트레이터 또는 인간 개입 게이트가 신호를 받아 전략을 재조정한다. 모델이 스스로 한계를 인식하고 상위 시스템에 알리는 이 패턴은 Anthropic이 장기 실행 에이전트 하네스에서 권장하는 방식이다.
+
+## 방어선의 우선순위
+
+Anthropic의 장기 실행 에이전트 가이드는 루프가 의도한 경로에서 벗어났을 때 **일찍 중단**하는 것이 사후 복구보다 훨씬 저렴하다고 강조한다. 무한 루프나 둠 루프가 수십 이터레이션 동안 돌면 비용, 시간, 컨텍스트 윈도 모두가 낭비된다.
+
+```text
+방어선 우선순위 (바깥에서 안으로)
+
+  ┌─────────────────────────────────────────┐
+  │  1단 하드 캡: max_iterations 설정       │
+  │  ┌───────────────────────────────────┐  │
+  │  │  2단 no-progress: 해시 비교       │  │
+  │  │  ┌─────────────────────────────┐  │  │
+  │  │  │  3단 stuck 도구: 모델 신호  │  │  │
+  │  │  │  ┌───────────────────────┐  │  │  │
+  │  │  │  │  4단 인간 개입 게이트 │  │  │  │
+  │  │  │  └───────────────────────┘  │  │  │
+  │  │  └─────────────────────────────┘  │  │
+  │  └───────────────────────────────────┘  │
+  └─────────────────────────────────────────┘
+```
+
+방어 체계는 단순할수록 좋다. 하드 캡 → no-progress 감지 → stuck 도구 → 인간 개입의 4단 방어선을 순서대로 구축하면 대부분의 루프 병리를 조기에 잡을 수 있다.
+
+다음 챕터에서는 루프 내 초기 오류가 하류로 전파되는 **오류 캐스케이드**와, 작업을 진행하면서 목표 자체가 변질되는 **목표 표류**를 다룬다.

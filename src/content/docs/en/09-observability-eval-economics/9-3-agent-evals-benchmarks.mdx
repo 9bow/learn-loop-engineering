@@ -1,0 +1,83 @@
+---
+title: "Agent Evaluations and Benchmarks: SWE-bench"
+description: Explore SWE-bench's structure and evaluation criteria, and examine the ACI design principles that top-performing agents have in common.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Explain SWE-bench's evaluation structure and what it means to pass an issue"
+  - "Understand the ACI concept introduced by SWE-agent and its design principles"
+  - "Know the caveats to keep in mind when interpreting agent benchmark scores"
+prerequisites:
+  - "9-2-trajectory-vs-final"
+estimated_minutes: 30
+references:
+  - title: "Yang et al. — SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering (arXiv:2405.15793)"
+    url: "https://arxiv.org/abs/2405.15793"
+    accessed: "2026-06-30"
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+---
+
+## What Is SWE-bench?
+
+**SWE-bench** is a benchmark constructed from real GitHub repositories: each instance pairs an issue (a bug report or feature request submitted to a popular Python project) with the commit that resolved it. The agent's task is to read the issue description and a snapshot of the codebase, then produce a code change.
+
+The scoring criterion is intentionally strict. **The agent's code change is applied to the repository, and the issue's associated test suite must pass entirely.** A plausible explanation or a similar-looking diff is not enough — the tests must actually run and turn green.
+
+This design matters for a reason. Earlier NLP benchmarks measured text similarity or multiple-choice accuracy. SWE-bench measures the **concrete outcome of real actions**: the agent reads files, modifies code, and a test verifies that the modification works.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                 SWE-bench Evaluation Flow                    │
+├──────────────────────────────────────────────────────────────┤
+│  1. Input:  GitHub issue text + repository code snapshot     │
+│  2. Agent:  loop runs (explore → modify → run tests)         │
+│  3. Output: code change diff                                 │
+│  4. Judge:  apply diff → run associated tests → pass/fail    │
+│                                                              │
+│  Note: evaluation environment is isolated from agent env     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Variants of SWE-bench
+
+SWE-bench comes in several official forms.
+
+| Variant | Issues | Description |
+|---|---|---|
+| SWE-bench (full) | 2,294 | original complete set |
+| SWE-bench Lite | 300 | self-contained issues, fast evaluation |
+| SWE-bench Verified | 500 | human-verified for problem clarity and solution quality |
+
+**SWE-bench Verified** is the most widely cited variant. Human annotators reviewed each issue to confirm the problem statement is unambiguous and the reference fix is reasonable. Top models on SWE-bench Verified currently achieve resolution rates in the 70–80% range, and this figure continues to rise rapidly.
+
+## SWE-agent and the ACI Concept
+
+The most important contribution of the SWE-agent paper is not the score itself but the introduction of the **ACI (Agent-Computer Interface)** concept. SWE-agent's initial version achieved 12.5%, a meaningful result by the standards of its time. What matters most is the design principle that made it possible.
+
+Earlier approaches handed the agent unrestricted bash shell access: read files, modify them, run anything. The SWE-agent researchers argued this actually confused agents by overwhelming them with choice. Instead, they provided an interface **deliberately narrowed and tuned for code-editing work**.
+
+The ACI design principles are as follows.
+
+**Bounded command set**: Rather than hundreds of raw bash commands, the agent receives a small number of purpose-built tools: `view_file`, `edit_file`, `search_code`, `run_tests`, and a handful of others. This makes tool selection unambiguous and reduces parameter hallucinations.
+
+**Actionable error messages**: When a tool fails, the error message is not a raw system string like "Error: permission denied". Instead it reads something like "The line number you specified exceeds the file length. The file has 45 lines." The agent can immediately decide its next action based on this context.
+
+**Context window management**: Rather than loading entire files into context at once, the interface shows only the 50–100 lines around the current editing position. This reduces context waste and keeps the agent focused.
+
+## What Top-Performing Agents Have in Common
+
+Looking at systems that score well on SWE-bench reveals recurring patterns. **ACI-based narrow interfaces** appear in virtually every top system — purpose-built tool sets rather than generic bash access. **Test-execution loops** are another constant: the agent runs tests after each code modification and uses the result as immediate feedback. This is the test-driven loop from chapter 6-4 applied in practice. **Sandboxed isolation** rounds out the common features: each issue runs in an independent container so a broken code change cannot contaminate evaluations of other issues.
+
+## Caveats When Interpreting Benchmark Scores
+
+SWE-bench scores are important indicators but should not be accepted uncritically.
+
+**Data contamination risk**: Issues opened after 2024 are relatively safe, but older issues may have appeared in model training data. SWE-bench Verified's human review partially mitigates this but does not eliminate it.
+
+**Hidden cost and time variables**: A system allowed 100 API calls per issue and one allowed only 10 are not comparable at face value. When reading benchmark reports, always check iterations, total tokens, and wall-clock time alongside the resolve rate.
+
+**Language specificity**: SWE-bench is entirely Python. Agent performance on TypeScript, Rust, or Go codebases cannot be reliably predicted from SWE-bench scores alone.
+
+The next chapter shifts from evaluation accuracy to **loop economics** — the cost structure that accumulates with every iteration a loop runs.

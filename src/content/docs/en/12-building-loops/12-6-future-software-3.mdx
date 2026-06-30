@@ -1,0 +1,132 @@
+---
+title: "The Future: Software 3.0 and the Loop Engineer's Role"
+description: How Andrej Karpathy's Software 3.0 paradigm redefines loop engineering, and how the developer's role is changing.
+sidebar:
+  order: 6
+learning_objectives:
+  - "Explain the paradigm differences between Software 1.0, 2.0, and 3.0 and describe where loop engineering sits"
+  - "Explain how loop engineering absorbs and extends both prompt engineering and context engineering"
+  - "Define the new competencies of the developer as harness designer and loop author, and reframe your own role"
+prerequisites:
+  - "12-1-case-claude-code-codex"
+estimated_minutes: 32
+references:
+  - title: "Andrej Karpathy / swyx — Software 3.0"
+    url: "https://www.latent.space/p/s3"
+    accessed: "2026-06-30"
+  - title: "Addy Osmani — Loop Engineering"
+    url: "https://addyosmani.com/blog/loop-engineering/"
+    accessed: "2026-06-30"
+---
+
+## Three Paradigm Shifts
+
+The history of software development can be summarized in three fundamental paradigm shifts. This is the framework Andrej Karpathy defined.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│              Three Eras of the Software Paradigm                 │
+└─────────────────────────────────────────────────────────────────┘
+
+Software 1.0 (Traditional programming)
+  Input → [Explicit rules: if/else, algorithms] → Output
+  Developer writes the rules directly
+  Strengths: predictable, deterministic
+  Weaknesses: cannot codify complex patterns
+
+Software 2.0 (Deep learning)
+  Input → [Learned weights: neural network] → Output
+  Developer designs data and objective function
+  Strengths: pattern recognition, automatic generalization
+  Weaknesses: uninterpretable, data-dependent
+
+Software 3.0 (LLM-based)
+  Input → [Natural language instructions + LLM] → Output
+  Developer designs goal and context
+  Strengths: flexible, instantly adaptive, natural language interface
+  Weaknesses: non-deterministic, failures hard to detect without a loop
+```
+
+In Software 3.0, the LLM is a new **computing substrate**. Just as a CPU executes code, a new layer now executes natural language instructions. On top of this substrate, "programming" becomes writing prompts, designing context, and **building loops**.
+
+## Accumulating Engineering Layers
+
+As Software 3.0 arrived, the developer's toolbox evolved too. These layers **accumulated rather than replaced** each other.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│              Accumulation of Engineering Layers                  │
+└─────────────────────────────────────────────────────────────────┘
+
+              ┌────────────────────────┐
+              │   Loop Engineering      │  ← Now (2025–)
+              │  Harness + loop struct  │
+              └──────────┬─────────────┘
+                         │ absorbs / includes
+              ┌──────────┴─────────────┐
+              │  Context Engineering   │  Emerged 2025
+              │  What to put in model  │
+              └──────────┬─────────────┘
+                         │ absorbs / includes
+              ┌──────────┴─────────────┐
+              │  Prompt Engineering    │  2022–2024
+              │  How to talk to model  │
+              └──────────┬─────────────┘
+                         │ foundation
+              ┌──────────┴─────────────┐
+              │  The Model Itself      │  LLM
+              └────────────────────────┘
+```
+
+Prompt engineering optimized individual model calls. Context engineering addressed what to place inside the context. **Loop engineering encompasses both** while also designing loop structure, harness, termination conditions, state management, and safety mechanisms across the whole system.
+
+## Boris Cherny's Insight: Writing Loops Is the Job
+
+Boris Cherny, the lead of Claude Code, expressed this change most directly:
+
+> "I no longer prompt Claude. I run loops and let it figure out what to do. My job is to write the loop."
+
+This sentence compresses the developer's role change in Software 3.0. The core competency becomes not crafting a single perfect prompt, but designing the **structure** in which agents can perform work autonomously.
+
+Addy Osmani named this "loop engineering." The person who designs loops rather than prompts, who builds harnesses rather than one-off scripts — this is the central engineer of the Software 3.0 era.
+
+## New Competencies for Loop Engineers
+
+The competencies required of a loop engineer in the Software 3.0 era overlap with traditional software engineering in some areas and diverge sharply in others.
+
+**Competencies that remain essential:**
+- System design and abstraction
+- Debugging and root cause analysis
+- Test and verification design
+- Security and error handling
+
+**Competencies that grow newly important:**
+- **Loop structure design** — knowing which pattern fits which problem
+- **Harness engineering** — building the control system that wraps agents
+- **Evaluation design** — how to measure agent success mechanically
+- **Context architecture** — what to give the model, when, and in what format
+- **Failure mode prediction** — anticipating how a loop can break before it does
+
+**Competencies that become less central:**
+- Implementation details of individual algorithms (agents can write these)
+- Writing boilerplate code (agents can generate this)
+
+## The Trajectory Ahead
+
+According to METR's measurements, the length of tasks that AI can complete at 50% reliability roughly doubles every seven months. Agents today can autonomously handle tasks of roughly one hour in length; if this trend continues, they will be processing tasks measured in days to weeks within months.
+
+For loop engineers, this trajectory has two meanings.
+
+**Opportunity**: Repetitive tasks with clear goals become automatable via loops. Developers can focus on higher-level problems — what to build, what goals to achieve.
+
+**Responsibility**: Loops that run longer and more autonomously can accomplish more, and can also go more seriously wrong. Embedding safety mechanisms, auditability, and human oversight points into loop design becomes more critical, not less.
+
+## Closing This Course
+
+This course has covered everything from making loops *run* to making them *reliable, safe, and economical*. We started from the limits of a single call, worked through basic loop anatomy, single-agent patterns, workflow patterns, context management, loop control, failure modes and reliability, security, observability and evaluation, multi-agent systems, self-improving RL, and finally real-world case studies.
+
+In the Software 3.0 era, writing loops *is* writing software. The journey as a loop engineer starts here.
+
+import Quiz from '../../../../components/learning/Quiz.tsx';
+
+<Quiz section="12-building-loops" lang="en" client:load />

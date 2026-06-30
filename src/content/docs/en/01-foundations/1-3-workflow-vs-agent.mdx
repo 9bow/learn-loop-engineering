@@ -1,0 +1,115 @@
+---
+title: "Workflow vs. Agent: Two Axes of Control Flow"
+description: Draw a clear line between workflows — where control flow is hard-coded — and agents — where the model decides control flow at runtime — and learn when to choose each.
+sidebar:
+  order: 3
+learning_objectives:
+  - "Distinguish workflows from agents using the location of control-flow decision-making as the criterion"
+  - "Articulate the advantages, disadvantages, and appropriate use cases of each approach"
+  - "Apply Anthropic's 'start simple' principle when selecting a system design"
+prerequisites:
+  - "1-2-agent-definition"
+estimated_minutes: 30
+references:
+  - title: "Anthropic — Building Effective AI Agents"
+    url: "https://www.anthropic.com/research/building-effective-agents"
+    accessed: "2026-06-30"
+  - title: "Simon Willison — Designing Agentic Loops"
+    url: "https://simonwillison.net/2025/Sep/30/designing-agentic-loops/"
+    accessed: "2026-06-30"
+---
+
+## Where Does Control Flow Live?
+
+The first question to ask when designing any agentic system is: **"Who decides what happens next?"** The answer to that question is what separates workflows from agents.
+
+A **workflow** is a system where control flow is hard-coded by the developer. The developer pre-defines "do A, then B; if condition C, go to D, otherwise E." The LLM plays a role at individual nodes — generating text or making a classification — but it never changes the structure of the pipeline itself. The execution path is always predictable and deterministic.
+
+An **agent** is a system where the model itself decides control flow. The model chooses which tool to call, how many times to iterate, and when to stop. Code provides the loop skeleton and guardrails. The execution path is not known until runtime.
+
+## Structural Comparison
+
+```text
+Workflow (control flow fixed in code)
+─────────────────────────────────────────────────────────
+  [Input] → [LLM 1: classify] → [LLM 2: handle A]
+                              └→ [LLM 3: handle B] → [Output]
+  Paths are developer-defined. No runtime changes.
+
+Agent (control flow delegated to the model)
+─────────────────────────────────────────────────────────
+  [Input] → ┌──────────────────────────────────┐
+            │  LLM: decide next action          │
+            │  ↕  (tool_calls / end_turn)       │
+            │  run tool → observe → re-reason   │
+            └──────────────────────────────────┘ → [Output]
+  Number of loops and tool choices determined at runtime.
+```
+
+Anthropic treats these not as mutually exclusive categories but as a **spectrum**. Many practical systems are hybrids: an agent is invoked at a specific step of a larger workflow, or an agent delegates to sub-workflows for well-defined sub-tasks.
+
+## Comparison Table: When to Choose Which
+
+| Criterion | Workflow | Agent |
+|---|---|---|
+| Who decides control flow | Developer (code) | Model (runtime) |
+| Predictability | High | Low |
+| Flexibility | Low | High |
+| Debugging difficulty | Easy | Hard |
+| Best suited for | Repetitive, well-defined processes | Open-ended, uncertain problems |
+| Failure mode | Path design errors | Loop escape, goal drift |
+| Cost predictability | Deterministic | Varies with iteration count |
+
+## The "Start Simple" Principle
+
+The most emphatic recommendation in Anthropic's Building Effective AI Agents guide is: **choose the minimum structure needed for the task.** Agents are more flexible, but that flexibility comes at the cost of harder design, harder debugging, and harder cost control. Introducing an agent where a workflow would suffice is adding unnecessary complexity.
+
+General selection guidelines:
+
+- **If the task path is predictable and the steps are fixed** → workflow
+- **If the task steps or order depend on input and cannot be pre-defined** → agent
+- **If you are unsure** → start with a workflow and migrate toward an agent incrementally as the need becomes clear
+
+Simon Willison echoes this caution. Agentic loops can stall, fail repeatedly, or drift in unintended directions. Ask honestly whether the flexibility is worth the risk before committing.
+
+## The Structural Difference in Code
+
+This is illustrative pseudocode; actual API signatures differ.
+
+```python
+# ── Workflow: path fixed in code ─────────────────────────────
+def classify_and_route(text: str) -> str:
+    # Step 1: classify (always runs)
+    category = model.generate(f"Classify the following: {text}")
+
+    # Step 2: branch (developer decides)
+    if "complaint" in category:
+        return model.generate(f"Write an apology response: {text}")
+    else:
+        return model.generate(f"Write a standard response: {text}")
+    # Path is fixed. No further iterations.
+
+
+# ── Agent: path decided by model at runtime ──────────────────
+def agent_handle(task: str, tools: list) -> str:
+    messages = [{"role": "user", "content": task}]
+
+    while True:
+        response = model.generate(messages, tools=tools)
+
+        if response.stop_reason == "end_turn":
+            return response.text
+
+        # Model decides which tools to call and how many times
+        for call in response.tool_calls:
+            result = execute_tool(call)
+            messages.append({"role": "tool", "content": result})
+```
+
+The workflow function makes at most two model calls, with the branching path determined entirely by code. The agent function iterates an arbitrary number of times until the model declares `end_turn`.
+
+## Hybrid Approaches: Real-World Systems
+
+Most production agentic systems are neither pure workflows nor pure agents. A common pattern in customer-service systems, for example, routes the incoming request to the correct team via a workflow, but then hands off to an agent that handles the specific problem-solving. Anthropic summarizes this as: "place agents within appropriate constraints." The guardrails are designed; the problem-solving within them is open.
+
+The next chapter traces the intellectual lineage from prompt engineering through context engineering to loop engineering, showing how each layer absorbed and extended the one beneath it.
