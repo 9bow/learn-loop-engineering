@@ -17,6 +17,10 @@ references:
   - title: "OpenAI — New tools for building agents (Agents SDK)"
     url: "https://openai.com/index/new-tools-for-building-agents/"
     accessed: "2026-06-30"
+  - title: "A2A Protocol Specification"
+    url: "https://a2a-protocol.org/latest/specification/"
+  - title: "Agent Skills Specification"
+    url: "https://agentskills.io/specification"
 ---
 
 ## Two Collaboration Models
@@ -106,6 +110,12 @@ The handoff model shines under the following conditions.
 **Task plans need to change dynamically**: An orchestrator can adjust the next round of subtasks each time it receives worker results. Replanningmid-flight is awkward in a handoff chain.
 
 ## Combining Both Models
+
+## Where A2A and Agent Skills Fit
+
+Handoff and dispatch are control-flow patterns inside one system. **A2A** is an interoperability contract for independently deployed agents, often across team or runtime boundaries, to advertise capabilities and exchange tasks, status, and artifacts. MCP connects an agent host to tools and data; A2A concerns delegation between agents. It is not a replacement for an in-process function call.
+
+**Agent Skills** package instructions, scripts, and reference material for reusable work. A2A answers “which agent should receive this task?”; Skills answer “which procedure and resources should that agent use?” Both need explicit permissions, input/output contracts, and versioning.
 
 Real systems often combine the two patterns. The top layer uses an orchestrator for parallel dispatch; each worker uses handoffs internally to delegate to sub-specialists. This nested structure lets you get the parallelism benefits of dispatch where you need them while keeping handoff's simplicity for linear sub-workflows.
 

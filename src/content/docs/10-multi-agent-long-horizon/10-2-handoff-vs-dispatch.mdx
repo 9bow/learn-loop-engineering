@@ -17,6 +17,10 @@ references:
   - title: "OpenAI — New tools for building agents (Agents SDK)"
     url: "https://openai.com/index/new-tools-for-building-agents/"
     accessed: "2026-06-30"
+  - title: "A2A Protocol Specification"
+    url: "https://a2a-protocol.org/latest/specification/"
+  - title: "Agent Skills Specification"
+    url: "https://agentskills.io/specification"
 ---
 
 ## 두 가지 협업 모델
@@ -104,6 +108,12 @@ result = Runner.run(triage_agent, user_message)
 **작업 계획이 동적으로 변할 때**: 오케스트레이터는 워커 결과를 받아볼 때마다 다음 서브태스크를 조정할 수 있다. 핸드오프 체인은 이런 동적 계획 수정이 어렵다.
 
 ## 두 모델의 조합
+
+## A2A와 Agent Skills의 위치
+
+핸드오프와 디스패치는 한 시스템 안의 제어 흐름 패턴이다. **A2A**는 서로 다른 팀·런타임에 배포된 독립 에이전트가 능력을 알리고 태스크·상태·산출물을 교환해야 할 때 쓰는 상호운용성 계약이다. MCP가 도구·데이터 연결을 다룬다면 A2A는 에이전트 간 위임을 다룬다. 내부 함수 호출을 A2A로 바꿀 필요는 없다.
+
+**Agent Skills**는 특정 업무의 지침·스크립트·참조 자료를 재사용 가능한 묶음으로 만든다. A2A가 “어느 에이전트에게 위임할지”라면 Skills는 “수신 에이전트가 어떤 절차와 자원을 사용할지”다. 두 경우 모두 권한, 입력·출력 형식, 버전을 명시해야 한다.
 
 실제 시스템에서는 두 패턴을 조합하는 경우가 많다. 최상위 레이어에서는 오케스트레이터가 병렬 디스패치를 관리하고, 각 워커 내부에서는 핸드오프를 통해 세부 전문 에이전트로 위임하는 구조다.
 

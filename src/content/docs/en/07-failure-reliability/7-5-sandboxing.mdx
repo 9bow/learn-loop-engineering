@@ -49,7 +49,7 @@ Blast Radius Containment Goal
 
 ## Container-Based Isolation
 
-The most powerful technical mechanism for limiting blast radius is **container isolation**. The code the agent executes runs in an environment that is separated from the host system. Both OpenAI's Codex and Anthropic's Claude Code run tool execution in isolated container environments.
+Container isolation is a powerful mechanism for limiting blast radius: code runs in an environment separated from the host. The effective isolation level depends on the product, execution environment, and permission settings, however. Do not assume a particular agent always provides container isolation; verify the current product documentation and configuration.
 
 What container isolation provides:
 

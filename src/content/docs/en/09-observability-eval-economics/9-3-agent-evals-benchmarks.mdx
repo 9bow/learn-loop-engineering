@@ -50,7 +50,7 @@ SWE-bench comes in several official forms.
 | SWE-bench Lite | 300 | self-contained issues, fast evaluation |
 | SWE-bench Verified | 500 | human-verified for problem clarity and solution quality |
 
-**SWE-bench Verified** is the most widely cited variant. Human annotators reviewed each issue to confirm the problem statement is unambiguous and the reference fix is reasonable. Top models on SWE-bench Verified currently achieve resolution rates in the 70–80% range, and this figure continues to rise rapidly.
+**SWE-bench Verified** is the most widely cited variant. Human annotators reviewed each issue to confirm the problem statement is unambiguous and the reference fix is reasonable. Leaderboard numbers depend on the model snapshot, evaluation harness, number of attempts, and time and cost budget, so they should not be quoted as a single measure of general ability.
 
 ## SWE-agent and the ACI Concept
 
@@ -66,9 +66,9 @@ The ACI design principles are as follows.
 
 **Context window management**: Rather than loading entire files into context at once, the interface shows only the 50–100 lines around the current editing position. This reduces context waste and keeps the agent focused.
 
-## What Top-Performing Agents Have in Common
+## Evaluation Harness and Isolation
 
-Looking at systems that score well on SWE-bench reveals recurring patterns. **ACI-based narrow interfaces** appear in virtually every top system — purpose-built tool sets rather than generic bash access. **Test-execution loops** are another constant: the agent runs tests after each code modification and uses the result as immediate feedback. This is the test-driven loop from chapter 6-4 applied in practice. **Sandboxed isolation** rounds out the common features: each issue runs in an independent container so a broken code change cannot contaminate evaluations of other issues.
+An evaluation harness fixes the dataset, repository snapshot, container image, test command, timeout, and retry policy together. It separates the agent-run environment from the final evaluation environment and preserves patches, tool output, and traces so failures can be reproduced. ACI-style narrow interfaces and test-execution loops are useful design choices, but their effect is comparable only under the same evaluation contract.
 
 ## Caveats When Interpreting Benchmark Scores
 
