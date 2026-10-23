@@ -105,7 +105,7 @@
       "Fine-tuned specialized models"
     ],
     "answer": 2,
-    "explanation": "Chapter 9-6 states that Anthropic's model routing guide recommends assigning orchestration decisions and complex reasoning to the Opus family of frontier models, general tasks to Sonnet, and simple or repetitive tasks to the lightweight Haiku models."
+    "explanation": "Chapter 9-6 uses a stronger model for orchestration as an example. Select model tiers using measured task quality, latency, and total cost. A family name is not a universal capability ranking."
   },
   {
     "id": "q10",

@@ -13,10 +13,14 @@ estimated_minutes: 30
 references:
   - title: "LMSYS — RouteLLM: Learning to Route LLMs with Preference Data"
     url: "https://lmsys.org/blog/2024-07-01-routellm/"
-    accessed: "2026-06-30"
+    accessed: "2026-10-23"
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
+
+  - title: "Anthropic: Current model IDs"
+    url: "https://platform.claude.com/docs/en/models/overview"
+    accessed: "2026-10-23"
 ---
 
 ## 모든 스텝에 동일한 모델을 쓸 필요가 없다
@@ -48,83 +52,74 @@ references:
 
 ## RouteLLM: 데이터 기반 라우팅
 
-**RouteLLM**은 LMSYS 연구팀이 개발한 LLM 라우팅 시스템으로, 쿼리별로 강력한 모델과 약한 모델 중 어느 것으로 라우팅할지를 학습된 라우터가 결정한다. 핵심 결과는 다음과 같다. GPT-4 수준의 성능을 95% 유지하면서 일부 쿼리만 강력한 모델로 보내는 방식으로 전체 비용을 크게 줄일 수 있었다.
+**RouteLLM**은 LMSYS 연구팀이 개발한 LLM 라우팅 시스템으로, 쿼리별로 강력한 모델과 약한 모델 중 어느 것으로 라우팅할지를 학습된 라우터가 결정한다. 2024년 실험은 GPT-4 Turbo와 Mixtral 8x7B를 라우팅했다. 보고된 벤치마크 조건에서 GPT-4 성능의 95%를 유지하면서 비용을 줄였다. 이는 당시의 결과이며 최신 모델이나 다중 턴 에이전트에서도 같은 효과를 보장하지 않는다.
 
-RouteLLM 접근법의 핵심은 **라우터 자체가 경량 분류기**라는 점이다. 쿼리를 보고 "이 쿼리는 강력한 모델이 필요한가, 약한 모델로 충분한가"를 판단하는 작은 모델이나 규칙 기반 시스템이다. 잘못 라우팅해도 폴백(fallback)할 수 있으므로, 라우터 자체의 실수는 허용된다.
+RouteLLM 접근법의 핵심은 **라우터 자체가 경량 분류기**라는 점이다. 쿼리를 보고 "이 쿼리는 강력한 모델이 필요한가, 약한 모델로 충분한가"를 판단하는 작은 모델이나 규칙 기반 시스템이다. 폴백은 일부 오류의 영향을 줄일 수 있지만 이미 실행한 외부 행동을 되돌리지는 못한다. 라우팅 품질과 상태 변경 권한을 실행 전에 함께 검증한다.
 
 에이전트 루프에서 이 아이디어를 적용하면, 각 이터레이션에서 라우터가 "이 단계는 경량 모델로 처리 가능한가"를 판단해 비용을 줄인다.
 
 ## 실용적 라우팅 구현
 
-개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
+아래 코드는 애플리케이션 어댑터를 사용하는 의사 코드다. 어댑터는 assistant 응답 전체와 정규화한 도구 호출을 보존하고, 도구 결과는 Anthropic 메시지 형식으로 반환한다.
+
+모델 ID는 2026년 10월 23일 공식 목록의 예시이며 모든 작업의 성능 순위를 뜻하지 않는다. 글자 수를 사용하는 라우팅 규칙은 학습용 휴리스틱으로, 실제 작업에서 별도로 평가해야 한다.
 
 ```python
+import json
 from enum import Enum
 
 class ModelTier(Enum):
-    FRONTIER = "claude-opus-4-5"
-    MID = "claude-sonnet-4-5"
-    LIGHT = "claude-haiku-4-5"
+    FRONTIER = "claude-opus-5-5"
+    MID = "claude-sonnet-5-5"
+    LIGHT = "claude-haiku-5-5"
 
-def route_iteration(
-    messages: list[dict],
-    iteration: int,
-    tools_in_flight: bool,
-) -> ModelTier:
-    """
-    이터레이션의 성격을 보고 적합한 모델 계층을 선택한다.
-    - 첫 이터레이션(작업 분해): 프런티어
-    - 도구 결과 파싱만 필요한 경우: 경량
-    - 그 외 추론이 필요한 경우: 중간
-    """
+def route_iteration(messages, iteration, has_tool_result):
     if iteration == 0:
-        # 최초 작업 분해는 항상 프런티어
         return ModelTier.FRONTIER
-
-    last_message = messages[-1] if messages else {}
-    content = last_message.get("content", "")
-
-    # 도구 결과만 파싱하는 단순 스텝
-    if tools_in_flight and len(content) < 500:
+    content = messages[-1].get("content", "") if messages else ""
+    text = content if isinstance(content, str) else json.dumps(content)
+    if has_tool_result and len(text) < 500:
         return ModelTier.LIGHT
-
-    # 긴 추론이나 복잡한 판단이 필요한 경우
-    if len(content) > 2000 or "plan" in content.lower():
+    if len(text) > 2000 or "plan" in text.lower():
         return ModelTier.FRONTIER
-
     return ModelTier.MID
 
 
 def run_routed_loop(task: str, tools: list) -> str:
     messages = [{"role": "user", "content": task}]
-    iteration = 0
-
-    while iteration < 20:
-        tools_in_flight = any(
-            m.get("role") == "tool"
-            for m in messages[-3:]
+    for iteration in range(20):
+        content = messages[-1].get("content", "")
+        has_tool_result = isinstance(content, list) and any(
+            isinstance(block, dict) and block.get("type") == "tool_result"
+            for block in content
         )
-        tier = route_iteration(messages, iteration, tools_in_flight)
-
+        tier = route_iteration(messages, iteration, has_tool_result)
         response = call_model(messages, model=tier.value, tools=tools)
-
+        messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason == "end_turn":
-            return response.content
-
+            return response.text
+        if response.stop_reason != "tool_use" or not response.tool_calls:
+            raise RuntimeError(f"Unexpected stop: {response.stop_reason}")
+        results = []
         for call in response.tool_calls:
-            result = execute_tool(call)
-            messages.append(tool_result(call.id, result))
-
-        iteration += 1
+            try:
+                result = str(execute_tool(call.name, call.input))
+                is_error = False
+            except (KeyError, TypeError, ValueError) as error:
+                result, is_error = str(error), True
+            results.append({"type": "tool_result", "tool_use_id": call.id,
+                            "content": result, "is_error": is_error})
+        messages.append({"role": "user", "content": results})
+    raise RuntimeError("Iteration budget exhausted; task is incomplete")
 ```
 
 ## 라우팅의 리스크와 완화
 
 라우팅에는 실패 모드가 있다. 경량 모델로 잘못 라우팅했을 때 추론 품질이 떨어질 수 있고, 이것이 이후 스텝을 오염시킬 수 있다.
 
-**리스크 완화 전략**: 첫 이터레이션과 오케스트레이션 결정에는 항상 프런티어 모델을 사용한다. 경량 모델이 `tool_use` stop reason 없이 종료하거나 예상 형식과 다른 응답을 내면, 자동으로 중간 모델로 재시도한다. 중요한 상태 업데이트(작업 계획 수정, 에러 분석)는 항상 높은 계층으로 라우팅한다.
+실제 작업의 품질·지연·비용을 측정해 라우팅 규칙을 정한다. 올바른 최종 답변은 `end_turn`으로 끝날 수 있으므로 도구 호출이 없다는 이유만으로 실패로 판정하지 않는다. 독립적인 결과 검증이나 스키마 검사에 실패하면 상위 모델로 넘기되, 이미 실행한 외부 행동을 중복하지 않는다.
 
-**비용 절감 추정**: 내부 루프 작업의 40-60%가 도구 파라미터 추출이나 결과 파싱 같은 단순 작업이라면, 이들을 경량 모델로 처리하는 것만으로도 전체 루프 비용을 의미 있게 줄일 수 있다.
+단순 단계의 실제 비중과 라우터·재시도·캐시·모델 전환 비용을 함께 측정한다. 작은 모델을 선택하는 것만으로 성공한 작업당 비용이 낮아지는 것은 아니다.
 
 ## 섹션 마무리: 관찰·평가·경제학의 삼각형
 
