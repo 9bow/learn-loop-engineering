@@ -140,7 +140,7 @@ START: a task to solve
 
 It is important to be honest about the actual cost of choosing the wrong pattern.
 
-**Under-engineering**: Trying to solve with a single LLM call — without intermediate verification, errors reach the final output. Complex multi-step reasoning is compressed into one forward pass, reducing quality. This is especially pronounced in tasks like coding that require execution and verification.
+**Under-engineering**: Trying to solve with a single LLM call — without intermediate verification, errors reach the final output. Complex multi-step reasoning is compressed into one generation request, reducing quality. This is especially pronounced in tasks like coding that require execution and verification.
 
 **Over-engineering**: Applying Tree of Thoughts or multi-agent to a simple task — cost, latency, and complexity explode; debugging and observability become difficult. A significant portion of tasks that "seem to need an agent" can be solved with a well-written prompt chain.
 

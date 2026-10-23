@@ -21,11 +21,17 @@ references:
     url: "https://a2a-protocol.org/latest/specification/"
   - title: "Agent Skills Specification"
     url: "https://agentskills.io/specification"
+  - title: "OpenAI Agents SDK: Handoffs"
+    url: "https://openai.github.io/openai-agents-python/handoffs/"
+    accessed: "2026-10-23"
+  - title: "OpenAI Agents SDK: Guardrails"
+    url: "https://openai.github.io/openai-agents-python/guardrails/"
+    accessed: "2026-10-23"
 ---
 
 ## 두 가지 협업 모델
 
-멀티에이전트 시스템에서 에이전트들이 어떻게 협력하는지는 크게 두 가지 패턴으로 나뉜다. **디스패치(dispatch)**는 중앙의 오케스트레이터가 모든 작업을 조율한다. 오케스트레이터가 서브태스크를 만들고, 어떤 워커에게 할당할지 결정하고, 결과를 수집한다. 오케스트레이터는 항상 제어권을 유지한다. **핸드오프(handoff)**는 에이전트가 피어(peer)에게 직접 제어권을 넘긴다. 에이전트 A가 작업을 처리하다가 에이전트 B가 더 적합하다고 판단하면, 전체 실행 컨텍스트를 B에게 넘기고 스스로 종료된다.
+멀티에이전트 시스템에서 에이전트들이 어떻게 협력하는지는 크게 두 가지 패턴으로 나뉜다. **디스패치(dispatch)**는 중앙의 오케스트레이터가 모든 작업을 조율한다. 오케스트레이터가 서브태스크를 만들고, 어떤 워커에게 할당할지 결정하고, 결과를 수집한다. 오케스트레이터는 항상 제어권을 유지한다. **핸드오프(handoff)**는 에이전트가 피어(peer)에게 직접 제어권을 넘긴다. 에이전트 A가 작업을 처리하다가 에이전트 B가 더 적합하다고 판단하면, 다음 실행을 B가 맡게 한다. B는 필요에 따라 다시 핸드오프할 수 있으므로 A가 영원히 종료된다는 뜻은 아니다.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
@@ -53,13 +59,13 @@ OpenAI Agents SDK는 핸드오프 패턴을 일급(first-class) 프리미티브�
 
 **Handoff**: 에이전트가 다른 에이전트에게 제어권을 넘기는 메커니즘이다. 단순히 결과를 반환하는 것이 아니라 **실행 컨텍스트 자체를 이양**한다. 수신 에이전트는 이전 에이전트의 컨텍스트(대화 히스토리)를 이어받아 작업을 계속한다.
 
-**Guardrail**: 에이전트의 입출력을 검증하는 레이어다. 모델 실행과 병렬로 동작하며, 유해한 출력이나 범위를 벗어난 요청을 차단한다. Guardrail은 에이전트 외부에서 결정론적(deterministic)으로 동작하므로, LLM이 안전 제약을 추론으로 우회하지 못한다.
+**Guardrail**: 실행의 입력과 출력을 검사한다. 코드나 다른 모델을 사용할 수 있으므로 본질적으로 결정론적인 것은 아니다. 병렬 입력 검사가 끝나기 전에 도구가 실행될 수 있다. 행동이 대기해야 한다면 차단 모드를 사용하고 민감한 도구는 별도로 인가한다. 입력 가드레일은 첫 에이전트, 출력 가드레일은 최종 응답 에이전트에 적용된다.
 
 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
 
 ```python
 # OpenAI Agents SDK 스타일 개념 예시
-from agents import Agent, Handoff, Runner
+from agents import Agent, Runner
 
 # 전문화된 에이전트 정의
 code_agent = Agent(
@@ -73,21 +79,23 @@ research_agent = Agent(
     instructions="기술 문서 검색 및 분석을 담당합니다.",
     tools=[web_search, read_url],
     # 코드 작성이 필요한 경우 CodeAgent로 핸드오프
-    handoffs=[Handoff(agent=code_agent)],
+    handoffs=[code_agent],
 )
 
 triage_agent = Agent(
     name="TriageAgent",
     instructions="사용자 요청을 분석해 적합한 에이전트로 라우팅합니다.",
     handoffs=[
-        Handoff(agent=research_agent),
-        Handoff(agent=code_agent),
+        research_agent,
+        code_agent,
     ],
 )
 
 # 실행: TriageAgent가 시작하고, 필요에 따라 핸드오프
-result = Runner.run(triage_agent, user_message)
+result = Runner.run_sync(triage_agent, user_message)
 ```
+
+핸드오프는 기본적으로 대화 이력을 전달하지만 지원되는 history filter로 수신 내용을 제한할 수 있다. 서버가 관리하는 이력은 필터 제약이 다르다. 엄격한 정보 분리가 필요하면 선택한 입력으로 별도 run을 만들고 원래 서버 대화 ID를 재사용하지 않는다.
 
 ## 핸드오프가 적합한 경우
 
@@ -97,7 +105,7 @@ result = Runner.run(triage_agent, user_message)
 
 **결과 집계가 필요 없을 때**: 핸드오프는 선형 체인이다. 최종 에이전트가 사용자에게 직접 응답하고 중간 결과를 종합하는 별도 단계가 없다. 작업이 선형적으로 처리될 수 있는 경우에 적합하다.
 
-**컨텍스트 연속성이 중요할 때**: 이전 에이전트가 수집한 정보를 다음 에이전트가 그대로 이어받아야 할 때, 핸드오프는 컨텍스트를 완전히 전달한다.
+**컨텍스트 연속성이 중요할 때**: 이전 에이전트가 수집한 정보를 다음 에이전트가 그대로 이어받아야 할 때, 핸드오프는 기본적으로 대화 이력을 전달하며 필요에 따라 지원되는 필터로 제한한다.
 
 ## 디스패치가 적합한 경우
 
@@ -122,7 +130,7 @@ result = Runner.run(triage_agent, user_message)
 | 제어 흐름 | 선형 이양 (A→B→C) | 중앙 집중 (O→A, O→B) |
 | 결과 종합 | 불필요 (마지막 에이전트가 직접 답) | 오케스트레이터가 종합 |
 | 병렬성 | 본질적으로 순차 | 자연스러운 병렬 실행 |
-| 컨텍스트 전달 | 전체 이양 | 태스크 스펙만 전달 |
+| 컨텍스트 전달 | 기본 이력 전달, 지원되는 필터로 제한 | 태스크 명세와 선택한 맥락 전달 |
 | 실패 처리 | 체인이 끊기면 복구 어려움 | 워커별 독립 재시도 가능 |
 
 다음 챕터에서는 멀티에이전트 시스템과 롱호라이즌(long-horizon) 작업에서 가장 중요한 과학적 질문인 METR의 **시간 지평선(time horizon)** 연구를 살펴본다.

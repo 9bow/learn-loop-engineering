@@ -20,13 +20,16 @@ references:
   - title: "OpenAI — Unrolling the Codex agent loop"
     url: "https://openai.com/index/unrolling-the-codex-agent-loop/"
     accessed: "2026-06-30"
+  - title: "Anthropic: Demystifying evals for AI agents"
+    url: "https://www.anthropic.com/research/demystifying-evals-for-ai-agents"
+    accessed: "2026-10-23"
 ---
 
-## Tests Tell the Truth
+## Tests Provide External Evidence
 
-The defining strength of a coding agent is that verification is deterministic. Whether code is right or wrong is not a matter of judgment — **run the tests and they either pass or fail**. This binary clarity integrates perfectly with the agentic loop. Changing the stopping condition from "when the model declares it done" to "when all tests pass" closes the Generator-Verifier Gap (Chapter 6-2) in a fully deterministic way.
+A test runner provides evidence about specific assertions in a specific environment. Passing tests does not prove complete correctness. Tests can miss requirements, contain mistakes, or fail because of infrastructure noise.
 
-This is the core idea of the **test-driven agentic loop**: the agent edits code, runs tests, reads the results, and edits again — repeating this cycle. **The loop cannot terminate until all tests pass**.
+A test-driven loop edits code, runs relevant tests, and uses failures to guide the next change. Mark success only after the agreed acceptance criteria pass. Stop with an incomplete status when the time, iteration, or cost budget ends. A missing test tool is an unmet evaluation requirement, not proof of success.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐

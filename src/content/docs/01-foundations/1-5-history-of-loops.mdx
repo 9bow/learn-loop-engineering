@@ -23,6 +23,9 @@ references:
   - title: "Geoffrey Huntley — Ralph Wiggum as a software engineer"
     url: "https://ghuntley.com/ralph/"
     accessed: "2026-06-30"
+  - title: "Addy Osmani: Loop Engineering"
+    url: "https://addyosmani.com/blog/loop-engineering/"
+    accessed: "2026-10-23"
 ---
 
 ## 이정표 요약
@@ -34,7 +37,7 @@ references:
 | 2023.06 | Lilian Weng 블로그 | Planning·Memory·Tool Use 3축 프레임 |
 | 2024.12 | Anthropic BEA 가이드 | 실용 워크플로·에이전트 설계 원칙 |
 | 2025.07 | Ralph 기법 | 신선 컨텍스트 + 단순 루프 원칙 |
-| 2025~ | Loop Engineering | 루프 설계의 독립 공학 분야 부상 |
+| 2026.06 | Loop Engineering 글 | Osmani가 루프 조율을 별도 설계 계층으로 설명 |
 
 ## 역사가 짧은 이유
 
@@ -58,7 +61,7 @@ references:
 2025.07  Geoffrey Huntley "Ralph" 기법 공개
          while :; do cat PROMPT.md | claude-code; done
 
-2025 ~   "Loop Engineering" 용어 부상 (Osmani, Cherny)
+2026.06  Osmani의 "Loop Engineering" 글
          루프 설계가 독립적 엔지니어링 분야로 인식
 ──────────────────────────────────────────────────────────────
 ```
@@ -98,9 +101,9 @@ while :; do cat PROMPT.md | claude-code; done
 
 겉보기에는 너무 단순하지만, 이 안에 중요한 원칙들이 담겨 있다. 매 이터레이션마다 컨텍스트를 초기화(신선 컨텍스트)하고, 안정적인 스펙 문서(PROMPT.md)를 매번 재주입하고, 루프당 한 가지 목표만 추구한다. 환각이 누적되는 문제를 컨텍스트를 버리는 방식으로 해결했다. "루프를 돌리되, 루프를 단순하게 유지하라"는 반직관적 지혜였다.
 
-## 2025 이후 — "Loop Engineering"의 부상
+## 2026.06 — "Loop Engineering"이라는 설계 관점
 
-2025년부터 Addy Osmani와 Claude Code 팀의 Boris Cherny를 중심으로 루프 설계 자체를 독립적인 엔지니어링 분야로 바라보는 관점이 확산됐다. "프롬프트를 잘 쓰는 것"이나 "컨텍스트를 잘 구성하는 것"을 넘어, **루프 자체의 구조, 종료 조건, 상태 관리, 비용 제어, 신뢰성**을 공학적으로 다루는 것이 핵심 역량으로 자리 잡기 시작했다.
+Osmani의 2026년 6월 글은 루프 설계와 작업 조율을 별도 계층으로 설명한다. 이는 앞선 제어 이론과 에이전트 연구를 대체하는 공식 표준이나 최초 발명 주장은 아니다. "프롬프트를 잘 쓰는 것"이나 "컨텍스트를 잘 구성하는 것"을 넘어, **루프 자체의 구조, 종료 조건, 상태 관리, 비용 제어, 신뢰성**을 공학적으로 다루는 것이 핵심 역량으로 자리 잡기 시작했다.
 
 이 짧은 역사가 말해 주는 것은 하나다. 에이전틱 루프는 이론에서 시작해 실패를 겪고, 그 실패에서 원칙을 배우고, 그 원칙을 체계화하는 과정에 있다. 다음 섹션에서는 그 원칙들을 루프 해부학이라는 이름으로 하나씩 들여다본다.
 

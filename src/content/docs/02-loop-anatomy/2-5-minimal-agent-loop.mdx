@@ -29,64 +29,50 @@ references:
 2. **stop_reason 분기** — `end_turn`이면 종료, `tool_use`이면 계속한다.
 3. **max iteration 가드** — 루프가 무한히 돌지 않도록 상한을 강제한다.
 
-## 전체 구현 (48줄)
+## 전체 구현
 
 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
 
 ```python
-# minimal_agent.py — 최소 에이전트 루프 (48줄)
-import json
-from typing import Any
-
-MAX_ITERATIONS = 20  # 무한 루프 방지 가드
+MAX_ITERATIONS = 20
 
 
-def execute_tool(name: str, inputs: dict[str, Any]) -> str:
-    """도구 이름과 입력을 받아 결과 문자열을 반환한다."""
-    if name == "calculator":
-        expression = inputs["expression"]
-        try:
-            return str(eval(expression, {"__builtins__": {}}, {}))
-        except Exception as e:
-            return f"계산 오류: {e}. 올바른 수식을 입력하세요."
-    raise ValueError(f"알 수 없는 도구: {name}")
+def execute_tool(name, inputs):
+    if name != "multiply":
+        raise ValueError("Unknown tool")
+    a, b = inputs["a"], inputs["b"]
+    if any(type(x) is not int or abs(x) > 10**9 for x in (a, b)):
+        raise ValueError("Use integers between -10**9 and 10**9")
+    return str(a * b)
 
 
-def run_agent(task: str, model, tools: list[dict]) -> str:
-    """
-    최소 에이전트 루프.
-    Returns: 최종 텍스트 응답
-    Raises: RuntimeError — max iteration 초과 시
-    """
+def run_agent(task, model, tools):
     messages = [{"role": "user", "content": task}]
-
-    for iteration in range(MAX_ITERATIONS):
-        # ── REASON ──────────────────────────────────────────
+    for _ in range(MAX_ITERATIONS):
         response = model.generate(messages=messages, tools=tools)
-
-        # ── 종료 조건 ────────────────────────────────────────
+        messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason == "end_turn":
             return response.text
-
-        # ── ACT: 도구 실행 ────────────────────────────────────
-        tool_results = []
+        if response.stop_reason != "tool_use" or not response.tool_calls:
+            raise RuntimeError(f"Unexpected stop: {response.stop_reason}")
+        results = []
         for call in response.tool_calls:
-            result = execute_tool(call.name, call.input)
-            tool_results.append({
-                "tool_use_id": call.id,
-                "content": result,
+            try:
+                result = execute_tool(call.name, call.input)
+                is_error = False
+            except (KeyError, TypeError, ValueError) as error:
+                result, is_error = str(error), True
+            results.append({
+                "type": "tool_result", "tool_use_id": call.id,
+                "content": result, "is_error": is_error,
             })
-
-        # ── OBSERVE: 결과를 컨텍스트에 추가 ─────────────────────
-        messages.append({"role": "assistant", "content": response.tool_calls})
-        messages.append({"role": "tool",      "content": tool_results})
-
-    # ── MAX ITERATION 초과 ────────────────────────────────────
-    raise RuntimeError(
-        f"에이전트가 {MAX_ITERATIONS}회 이터레이션 안에 완료하지 못했습니다. "
-        "작업을 더 작은 단위로 나누거나 MAX_ITERATIONS를 늘려보세요."
-    )
+        messages.append({"role": "user", "content": results})
+    raise RuntimeError("Iteration budget exhausted; task is incomplete")
 ```
+
+어댑터는 도구 호출 ID를 포함한 assistant 응답 전체를 보존하고, 정규화된 `tool_calls`를 제공한다. 예제는 Anthropic 형식에 따라 `user` 메시지 안에 `tool_result`를 반환한다. OpenAI 어댑터는 해당 API의 항목 형식으로 직렬화해야 한다.
+
+계산 도구는 범위가 제한된 정수 두 개를 받아 직접 곱한다. 빈 builtins만으로 Python `eval`을 샌드박스로 만들 수 없다. 모델이 만든 수식을 호스트 프로세스에서 평가하지 않는다. 반복 한도만으로 느린 도구의 실행 시간은 제한되지 않으므로 운영 환경에는 도구 타임아웃과 자원 한도를 추가한다.
 
 ## 코드 해설: 각 부분의 역할
 
@@ -104,9 +90,9 @@ run_agent("작업", model, tools)
        ├─ if end_turn: return              ← 정상 종료
        │
        ├─ for call in tool_calls:          ← ACT
-       │    result = execute_tool(call)
+       │    result = execute_tool(call.name, call.input)
        │
-       └─ messages += [assistant, tool]    ← OBSERVE (컨텍스트 축적)
+       └─ messages += [assistant, user/tool_result]    ← OBSERVE (컨텍스트 축적)
   │
   └─ raise RuntimeError                   ← 비정상 종료 (MAX 초과)
 ───────────────────────────────────────────────────────────
@@ -117,31 +103,19 @@ run_agent("작업", model, tools)
 ## 도구 정의와 테스트
 
 ```python
-# 도구 목록 정의
-calculator_tool = {
-    "name": "calculator",
-    "description": "수학 표현식을 계산합니다.",
+multiply_tool = {
+    "name": "multiply",
+    "description": "Multiply two bounded integers.",
     "input_schema": {
         "type": "object",
-        "properties": {
-            "expression": {
-                "type": "string",
-                "description": "계산할 수식 (예: '(2 + 3) * 4')"
-            }
-        },
-        "required": ["expression"]
-    }
+        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        "required": ["a", "b"],
+        "additionalProperties": False,
+    },
 }
-
-# 사용 예시
-# result = run_agent(
-#     task="357 곱하기 428의 결과를 계산하고 설명해줘",
-#     model=my_model,
-#     tools=[calculator_tool]
-# )
-# → 모델이 calculator("357 * 428")을 호출
-# → "152796"을 받아 컨텍스트에 추가
-# → "357 × 428 = 152,796입니다" 반환
+# model is an application adapter, not a provider SDK client.
+# run_agent("Calculate 357 times 428", model, [multiply_tool])
+# Tool result: "152796"
 ```
 
 ## 이 루프를 확장하는 다음 단계

@@ -20,6 +20,9 @@ references:
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
+  - title: "Anthropic: Demystifying evals for AI agents"
+    url: "https://www.anthropic.com/research/demystifying-evals-for-ai-agents"
+    accessed: "2026-10-23"
 ---
 
 ## 맞는 답이지만 나쁜 경로
@@ -66,7 +69,7 @@ references:
 
 스텝별 수치 지표만으로는 부족한 경우가 있다. 추론의 질적 일관성, 불필요한 우회의 미묘한 패턴은 규칙 기반으로 잡기 어렵다. 이럴 때 **LLM-as-judge** 패턴을 궤적 전체에 적용한다.
 
-LLM-as-judge를 궤적 평가에 쓸 때는 전체 트레이스를 텍스트 표현으로 변환해 심판 모델에게 제공한다. 연구에 따르면 GPT-4 수준의 모델이 심판으로 동작할 때 인간 평가자와의 선호 일치율이 80% 이상에 달해 인간 간 일치율과 비슷한 수준을 보인다.
+LLM-as-judge를 궤적 평가에 쓸 때는 전체 트레이스를 텍스트 표현으로 변환해 심판 모델에게 제공한다. MT-Bench 논문의 80% 이상 인간 선호 일치율을 전체 에이전트 궤적의 정확도로 옮겨 해석하지 않는다. 자신의 궤적 표본을 사람이 채점하고, 심판의 오탐과 미탐을 별도로 측정한다.
 
 개념 이해용 의사 코드이며 실제 API와 다를 수 있습니다.
 
@@ -103,6 +106,14 @@ def judge_trajectory(trajectory_text: str, task: str) -> dict:
 JSON으로 응답: {{"efficiency": N, "accuracy": N, "adaptability": N, "rationale": "..."}}"""
     return call_judge_model(prompt)
 ```
+
+## 환경 결과와 반복 실행의 신뢰성
+
+완료 주장과 실제 환경 결과를 구분한다. 예약 업무라면 저장된 예약을 확인하고, 코드 업무라면 제출된 패치를 깨끗한 평가 환경에서 실행한다. 설득력 있는 대화 기록만으로 요청한 상태가 존재한다고 증명할 수 없다.
+
+Anthropic의 2026년 1월 평가 가이드는 `pass@k`와 `pass^k`를 구분한다. 전자는 k회 중 한 번 이상 성공할 가능성이고 후자는 k회 모두 성공할 가능성이다. 회당 성공 확률이 0.75로 일정하고 실행들이 독립적이라면 세 번 시도할 때 각각 약 98.4%와 42.2%다. 실제 실행은 서로 상관될 수 있으므로 반복 측정 결과와 시도 예산을 함께 보고한다.
+
+새로운 어려운 작업의 능력 평가와 기존 동작을 지키는 회귀 평가를 분리한다. 환경 결과·궤적·비용·실패 분류를 함께 기록한다.
 
 ## 스텝 레벨 vs 궤적 레벨 평가의 결합
 

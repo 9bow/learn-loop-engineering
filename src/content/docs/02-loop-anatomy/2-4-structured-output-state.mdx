@@ -17,6 +17,12 @@ references:
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
+  - title: "OpenAI: Structured model outputs"
+    url: "https://developers.openai.com/api/docs/guides/structured-outputs"
+    accessed: "2026-10-23"
+  - title: "Anthropic: Structured outputs"
+    url: "https://platform.claude.com/docs/en/build-with-claude/structured-outputs"
+    accessed: "2026-10-23"
 ---
 
 ## 자유 텍스트 파싱의 위험
@@ -57,7 +63,7 @@ task_result_schema = {
             "description": "작업 완료 상태"
         },
         "output_path": {
-            "type": "string",
+            "type": ["string", "null"],
             "description": "생성된 파일의 절대 경로 (없으면 null)"
         },
         "line_count": {
@@ -65,11 +71,12 @@ task_result_schema = {
             "description": "출력 파일의 줄 수"
         },
         "error_message": {
-            "type": "string",
+            "type": ["string", "null"],
             "description": "실패 시 에러 메시지 (성공 시 null)"
         }
     },
-    "required": ["status"]
+    "required": ["status", "output_path", "line_count", "error_message"],
+    "additionalProperties": False
 }
 
 # 도구 응답에 스키마 적용
@@ -80,11 +87,15 @@ response = model.generate(
     output_schema=task_result_schema,
 )
 
-# 이제 response.structured_output은 항상 위 스키마를 따름
+# 어댑터에서 거부·불완전 출력을 처리한 뒤 파싱한다.
 result = response.structured_output
-if result["status"] == "success":
+if result["status"] == "success" and result["output_path"] is not None:
     process_file(result["output_path"])
 ```
+
+스키마 준수는 형식을 보장할 뿐 사실이나 실행 권한을 보장하지 않는다. `success` 값만으로 파일 생성을 확인할 수 없다. 허용된 경로인지, 파일이 실제 존재하고 요청한 산출물과 일치하는지 확인한 뒤 처리한다.
+
+위 예제의 `model.generate`는 공급자 SDK가 아닌 애플리케이션 어댑터다. 어댑터는 거부와 불완전 응답을 처리한 뒤 `structured_output`을 반환해야 한다. 공급자별 JSON Schema 지원 범위도 다르다. OpenAI strict 스키마는 모든 속성을 `required`에 넣고 `additionalProperties: false`를 요구한다. 값이 없을 수 있는 속성은 `null` 허용을 명시한다.
 
 ## 루프 상태(State)의 구성 요소
 

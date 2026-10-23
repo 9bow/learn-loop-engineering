@@ -121,15 +121,15 @@
   },
   {
     "id": "q11",
-    "question": "What does LangGraph's MemorySaver checkpointer do?",
+    "question": "What does an InMemorySaver checkpoint preserve?",
     "options": [
-      "It optimizes the execution speed of graph nodes",
-      "It saves a state snapshot after each node execution and allows resuming from the last successful node on failure",
-      "It relays messages between multi-agents",
-      "It automatically limits token usage"
+      "All external API effects permanently",
+      "Graph state for recovery within the same live process",
+      "A durable database backup across all restarts",
+      "A guarantee of exactly-once payments"
     ],
     "answer": 1,
-    "explanation": "Chapter 7-3 explains that LangGraph's MemorySaver saves a state snapshot after each node execution, allowing resumption from after the last successful node if a failure occurs."
+    "explanation": "An in-memory saver loses data when its process ends. Process crash recovery needs durable storage, and external side effects need separate deduplication."
   },
   {
     "id": "q12",

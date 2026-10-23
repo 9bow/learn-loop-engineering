@@ -23,6 +23,9 @@ references:
   - title: "Model Context Protocol Specification (2026-07-28)"
     url: "https://modelcontextprotocol.io/specification/2026-07-28"
     accessed: "2026-08-28"
+  - title: "Anthropic: Handle tool calls"
+    url: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls"
+    accessed: "2026-10-23"
 ---
 
 ## Tools Are What Make the Loop Real
@@ -41,7 +44,7 @@ Tool Call Protocol Flow
 [user]      "Read foo.py and find the bug"
                           │
 [assistant] stop_reason: "tool_use"
-            tool_calls: [{
+            content: [{type: "tool_use",
               id: "call_01",
               name: "read_file",
               input: {"path": "foo.py"}
@@ -50,8 +53,8 @@ Tool Call Protocol Flow
             ┌─ harness executes read_file("foo.py") ─┐
             └────────────────────────────────────────┘
                           │
-[tool]      tool_use_id: "call_01"
-            content: "def foo():\n    return lst[10]  # IndexError"
+[user]      content: [{type: "tool_result", tool_use_id: "call_01",
+            content: "def foo():\n    return lst[10]  # IndexError"}]
                           │
 [assistant] stop_reason: "end_turn"
             text: "Line 5 has an index error. Check the list
@@ -60,7 +63,7 @@ Tool Call Protocol Flow
 ───────────────────────────────────────────────────────────
 ```
 
-**stop_reason** is the key signal. `"tool_use"` means the model wants to call a tool and continue working. `"end_turn"` means no more tools are needed and the task is complete. The loop's branching logic is driven entirely by these two values.
+The `stop_reason` controls continuation. `tool_use` requests tool execution. `end_turn` ends the model turn and does not prove task success. Handle token limits, refusals, and other stop reasons separately.
 
 ## Agent-Computer Interface (ACI) Design Principles
 

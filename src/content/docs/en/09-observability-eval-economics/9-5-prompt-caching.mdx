@@ -17,6 +17,9 @@ references:
   - title: "OpenAI — Unrolling the Codex agent loop"
     url: "https://openai.com/index/unrolling-the-codex-agent-loop/"
     accessed: "2026-06-30"
+  - title: "Anthropic: Prompt caching API guide"
+    url: "https://platform.claude.com/docs/en/build-with-claude/prompt-caching"
+    accessed: "2026-10-23"
 ---
 
 ## How the KV Cache Works
@@ -29,17 +32,17 @@ For agent loops this implies a foundational design principle: **content that nev
 
 ## Anthropic Prompt Caching: Cost Structure
 
-Anthropic exposes prompt caching as an explicit API feature. The cost structure is:
+Anthropic supports automatic caching through top-level `cache_control` and explicit cache breakpoints on content blocks. Cache lifetime is a time-to-live (TTL). The documented standard multipliers are:
 
-| Cache State | Price |
+| Cached input | Multiplier of base input price |
 |---|---|
-| Cache write (first request) | approximately 25% premium over standard input token price |
-| Cache hit (read) | approximately 10% of standard input token price (90% discount) |
-| Cache miss | 100% of standard input token price |
+| 5-minute cache write | 1.25 |
+| 1-hour cache write | 2.0 |
+| Cache read | 0.1, with model-specific exceptions |
 
-On the first request, you pay the cache-write premium. Starting from the second request onward, the cache-hit price (10%) applies. Therefore **two or more hits are enough to break even and start saving**. In a loop where the system prompt is reused every iteration, ten iterations means ten hits — and the system-prompt cost becomes nearly negligible.
+The current pricing table lists lower read multipliers for some models. Use the selected model's price and minimum cacheable length. A stable prefix alone does not guarantee a hit: lifetime, routing, and cache availability also matter.
 
-Concretely: for a 2,000-token system prompt at base price P per token, cache-write cost = 2,000 × 1.25P. From the second request onward, each hit costs 2,000 × 0.1P. By the third request, cumulative savings have already begun, and the longer the loop runs, the larger the total saving.
+For N equal-sized uses, write multiplier w, and read multiplier r, cached cost is `w + (N - 1)r` base-price units. Uncached cost is N units. With w = 1.25 and r = 0.1, two requests cost 1.35 units instead of 2. One subsequent hit already saves money. With a 1-hour write at w = 2, three requests cost 2.2 units instead of 3. These examples exclude changed suffixes and output tokens.
 
 ## Optimizing Cache Hit Rate Inside a Loop
 
@@ -100,7 +103,9 @@ Several common mistakes destroy cache hit rates.
 
 ## The Codex Loop Caching Pattern
 
-OpenAI's Codex loop implementation applies the same principle. The main source files for a codebase are loaded into the front of the system prompt and left unchanged throughout the loop. Conversation history and test output accumulate at the back. This pattern effectively reduces the cost of loading the codebase to a one-time expense, because every subsequent iteration reuses the cached KV entries for those files.
+The January 2026 Codex loop article emphasizes exact prefix reuse. Keep instructions and tool definitions stable when possible, then append conversation items. It does not prescribe freezing repository files in a system prompt. Files change during editing, so retrieve their current contents when needed.
+
+A cache stores computation, not authoritative project state. Reusing a cached prefix does not make an old file snapshot current. Use the API's usage fields to measure cached tokens and actual cost.
 
 ## Caching and Compaction: How They Interact
 

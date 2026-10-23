@@ -13,7 +13,7 @@ estimated_minutes: 28
 references:
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
-    accessed: "2026-06-30"
+    accessed: "2026-10-23"
   - title: "Simon Willison — An LLM agent runs tools in a loop to achieve a goal"
     url: "https://simonwillison.net/2025/Sep/18/agents/"
     accessed: "2026-06-30"
@@ -28,11 +28,11 @@ references:
 
 Anthropic은 자신들의 실전 가이드에서 에이전트를 이렇게 정의한다. *"에이전트는 환경적 피드백에 기반해 루프 안에서 도구를 사용하는 LLM일 뿐이다."* Solomon Hykes도 같은 방향으로 표현한다. *"AI 에이전트는 루프 안에서 자신의 환경을 사용하는 LLM이다."* Simon Willison은 더 압축한다. *"LLM 에이전트는 목표를 달성하기 위해 도구를 루프 안에서 실행한다."*
 
-세 정의의 공통 키워드는 **도구(tool)**, **루프(loop)**, **환경 피드백(environmental feedback)** 세 가지다. 이 세 요소가 없으면 에이전트가 아니다. 이 셋이 있으면 에이전트다. 단순하지만 강력한 기준이다.
+이 강좌는 도구·루프·환경 피드백을 실용적인 작업 정의로 사용한다. 에이전트라는 용어의 범위는 연구와 제품마다 다르다. 모델이 행동을 선택해도 예산·완료 기준·권한은 호스트가 강제할 수 있다.
 
 ## Augmented LLM: 에이전트의 빌딩 블록
 
-Lilian Weng은 2023년 6월 에이전틱 시스템 전반을 정리하면서 **LLM Powered Autonomous Agents** 프레임을 제시했다. 그 핵심에는 세 가지 능력으로 강화된 LLM, 즉 **Augmented LLM**이 있다.
+Lilian Weng의 2023년 글은 계획·메모리·도구 사용으로 에이전트를 정리한다. 검색·도구·메모리로 강화된 **Augmented LLM** 도식은 Anthropic의 2024년 가이드에서 제시한다. 서로 관련된 설명이지만 같은 출처의 동일한 분류는 아니다.
 
 ```text
 ┌─────────────────────────────────────────────────────────┐

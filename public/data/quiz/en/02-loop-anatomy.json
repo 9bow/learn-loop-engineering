@@ -40,12 +40,12 @@
     "question": "What is the fundamental difference between Chain-of-Thought (CoT) and an agentic loop?",
     "options": [
       "CoT uses tools, while a loop does not",
-      "CoT is internal reasoning within a single forward pass, while a loop invokes the model multiple times and incorporates external observations",
+      "CoT is internal reasoning within a single generation request, while a loop invokes the model multiple times and incorporates external observations",
       "CoT requires reinforcement learning, while a loop does not",
       "CoT always consumes more tokens"
     ],
     "answer": 1,
-    "explanation": "Chapter 2-2 explains that Chain-of-Thought is an internal reasoning process that takes place within a single forward pass, and unlike a loop it does not call external tools or incorporate observations."
+    "explanation": "Chapter 2-2 explains that Chain-of-Thought is an internal reasoning process that takes place within a single generation request, and unlike a loop it does not call external tools or incorporate observations."
   },
   {
     "id": "q5",

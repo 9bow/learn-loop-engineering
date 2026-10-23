@@ -5,7 +5,7 @@
     "options": [
       "Inability to act — the model can only generate text and cannot execute real tools",
       "No feedback — there is no external signal to verify whether its own output is correct",
-      "Step compression — multi-step reasoning must be squeezed into a single forward pass",
+      "Step compression — multi-step reasoning must be squeezed into a single generation request",
       "Insufficient context — the model lacks adequate background knowledge"
     ],
     "answer": 3,

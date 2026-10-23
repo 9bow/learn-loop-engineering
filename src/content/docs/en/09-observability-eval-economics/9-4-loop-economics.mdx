@@ -122,6 +122,6 @@ while iteration < MAX_ITERATIONS:
 
 ## Loop Cost vs. Single-Call Cost
 
-Understanding that a loop is always more expensive than a single call enables deliberate strategy selection. Tasks with predictable answers that require no tool interaction are far more economical as single calls. Only tasks that genuinely require interaction with the external world and mid-course verification justify the compounding cost of a loop.
+Comparing total task cost across the loop and single-call alternatives enables deliberate strategy selection. Tasks with predictable answers that require no tool interaction are far more economical as single calls. Only tasks that genuinely require interaction with the external world and mid-course verification justify the compounding cost of a loop.
 
-The next chapter covers the most effective technique for reducing loop cost: **prompt caching** — caching the system prompt and tool definitions that repeat unchanged across every iteration, so their token cost effectively disappears.
+The next chapter covers prompt caching. Reusing an unchanged prefix can reduce input cost, but cached input still has a price.

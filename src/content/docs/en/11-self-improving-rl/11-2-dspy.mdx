@@ -17,6 +17,9 @@ references:
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
+  - title: "DSPy: GEPA in depth (3.4.1 documentation)"
+    url: "https://dspy.ai/3.4.1/diving-deeper/gepa-in-depth/"
+    accessed: "2026-10-23"
 ---
 
 ## The Limits of Manual Prompt Engineering
@@ -100,7 +103,7 @@ The compiler accepts training examples (input-output pairs) and a metric (a func
 └────────────────────────────────────────────────────────────────┘
 ```
 
-## Two Key Optimizers
+## Optimizer Choice and GEPA
 
 **BootstrapFewShot**: The simplest optimizer. It runs the pipeline on training examples, collects trajectories that led to success, and automatically inserts them as few-shot examples. The advantage is twofold: human curation of examples is eliminated, and only reasoning paths that actually worked are used.
 
@@ -118,6 +121,12 @@ optimized_pipeline = teleprompter.compile(
 # optimized_pipeline now contains the best instructions
 # and examples the compiler found
 ```
+
+GEPA adds reflection-driven instruction search. It uses execution traces and textual metric feedback to propose revisions, then scores the candidates. Reflection proposes a change. The evaluation metric decides how that change performs.
+
+Keep the optimization dataset separate from the final test set. A validation set used repeatedly to select prompts is part of the search process. Measure the selected program once more on untouched tasks. Budget both reflection calls and metric evaluations, then save the program, model IDs, and evaluation data version.
+
+GEPA does not update foundation model weights in this prompt-optimization workflow. It also does not make a weak metric reliable. Inspect concrete failures and outcome evidence before accepting a score gain.
 
 ## What DSPy's Loop Means: Optimizer in the Loop
 

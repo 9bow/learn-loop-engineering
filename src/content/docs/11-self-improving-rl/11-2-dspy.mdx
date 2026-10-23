@@ -17,6 +17,9 @@ references:
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
+  - title: "DSPy: GEPA in depth (3.4.1 documentation)"
+    url: "https://dspy.ai/3.4.1/diving-deeper/gepa-in-depth/"
+    accessed: "2026-10-23"
 ---
 
 ## 수동 프롬프트 엔지니어링의 한계
@@ -100,7 +103,7 @@ class RAGPipeline(dspy.Module):
 └────────────────────────────────────────────────────────────────┘
 ```
 
-## 두 가지 핵심 옵티마이저
+## 옵티마이저 선택과 GEPA
 
 **BootstrapFewShot**: 가장 단순한 옵티마이저. 학습 예제에서 파이프라인을 실행해 성공한 경로를 수집하고, 그것을 몇 샷(few-shot) 예시로 자동 삽입한다. 사람이 직접 예시를 고르는 수고를 줄이면서, 실제로 성공한 추론 경로만 예시로 사용한다는 장점이 있다.
 
@@ -118,6 +121,12 @@ optimized_pipeline = teleprompter.compile(
 # 이제 optimized_pipeline 내부에는 컴파일러가 찾은
 # 최적 지시문과 예시가 포함되어 있다
 ```
+
+GEPA는 실행 궤적과 지표가 반환하는 텍스트 피드백으로 지시문을 수정하고 후보를 평가하는 반성 기반 탐색을 추가한다. 반성 모델은 변경을 제안하고, 평가 지표가 그 변경의 성능을 측정한다.
+
+최적화 데이터와 최종 테스트셋을 분리한다. 프롬프트를 반복 선택하는 검증셋은 탐색 과정에 사용된 데이터다. 선택한 프로그램은 손대지 않은 태스크에서 다시 평가한다. 반성 호출과 지표 평가 예산을 함께 제한하고 프로그램·모델 ID·평가 데이터 버전을 저장한다.
+
+이 프롬프트 최적화 흐름에서 GEPA는 기반 모델의 가중치를 바꾸지 않는다. 약한 지표의 신뢰성도 자동으로 높여주지 않으므로 점수 상승을 채택하기 전에 구체적 실패와 실제 결과 근거를 살핀다.
 
 ## DSPy 루프의 의미: 옵티마이저 인 더 루프
 

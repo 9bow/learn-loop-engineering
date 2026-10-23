@@ -15,8 +15,8 @@ references:
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
   - title: "MCP Specification 2025-11-25"
-    url: "https://modelcontextprotocol.io/specification/2025-11-25"
-    accessed: "2026-06-30"
+    url: "https://modelcontextprotocol.io/specification/2026-07-28"
+    accessed: "2026-10-23"
   - title: "Simon Willison — An LLM agent runs tools in a loop"
     url: "https://simonwillison.net/2025/Sep/18/agents/"
     accessed: "2026-06-30"
@@ -81,7 +81,7 @@ Simon Willison describes this risk when warning about what he calls "YOLO mode" 
 
 The Model Context Protocol (MCP) is a standard interface for connecting agents to external tools and data sources. Its strength is connectivity; that connectivity is also the vector for context contamination.
 
-Data returned by an MCP server comes from external sources the agent does not control. If a malicious or compromised MCP server returns a response containing adversarial instructions, the agent adds those instructions to its context verbatim. The MCP specification (2025-11-25) acknowledges this risk and requires implementations to explicitly address the trust level of tool results.
+Data returned by an MCP server comes from external sources the agent does not control. If a malicious or compromised MCP server returns a response containing adversarial instructions, the agent adds those instructions to its context verbatim. MCP describes security and consent principles, but a host must implement trust boundaries and authorization itself.
 
 ## Defense 1: Trust-Level Tagging of Tool Output
 
@@ -166,6 +166,6 @@ Not all tools carry equal injection risk. The following categories require parti
 - **Database queries**: results may include user-generated content
 - **MCP server responses**: structured data arriving from external services
 
-Results from all of these should always be processed with an `UNTRUSTED` tag. By contrast, internal tools — calculations, code execution within the sandbox, internal API calls — carry relatively higher inherent trust.
+Keep provenance and trust labels on external data. A label is model-visible guidance, not access control. Internal APIs and sandboxed code can also return attacker-controlled content. Classify the data source and execution boundary, rather than trusting a tool because its name says "internal".
 
 The next chapter examines a different but related threat: **reward hacking**, where an agent unintentionally exploits the metrics it is measured by rather than pursuing the genuine goal.

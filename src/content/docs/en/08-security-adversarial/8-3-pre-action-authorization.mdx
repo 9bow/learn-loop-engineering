@@ -20,6 +20,9 @@ references:
   - title: "MCP Specification 2025-11-25"
     url: "https://modelcontextprotocol.io/specification/2025-11-25"
     accessed: "2026-06-30"
+  - title: "MCP: Specification 2026-07-28"
+    url: "https://modelcontextprotocol.io/specification/2026-07-28"
+    accessed: "2026-10-23"
 ---
 
 ## Do Not Delegate Safety to the Model
@@ -60,6 +63,7 @@ The authorization layer receives the model's intended tool call and decides allo
 ```python
 # Conceptual pseudocode — actual API signatures may differ
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 @dataclass
@@ -68,48 +72,36 @@ class AuthorizationResult:
     reason: str
 
 class PreActionAuthorizer:
-    """
-    Deterministic permission check before tool execution.
-    Completely separate from model reasoning — pure code.
-    """
-
     def __init__(self, policy: dict):
-        self.policy = policy
+        self.policy = policy  # Trusted host configuration, not model input.
 
-    def authorize(self, tool_name: str, arguments: dict, context: dict) -> AuthorizationResult:
-        """
-        Check tool name and arguments against policy.
-        Does not call any LLM — implemented in pure code.
-        """
-        # 1. Blacklist check (always deny)
-        if tool_name in self.policy.get("blacklist", []):
-            return AuthorizationResult(
-                "deny",
-                f"'{tool_name}' is not permitted under policy"
-            )
-
-        # 2. High-risk argument pattern check
-        if tool_name == "write_file":
-            path = arguments.get("path", "")
-            if any(path.startswith(p) for p in self.policy.get("protected_paths", [])):
-                return AuthorizationResult(
-                    "require_human_approval",
-                    f"Writing to protected path '{path}' requires human approval"
-                )
-
-        # 3. Environment-based check
+    def authorize(self, tool_name, arguments, context):
+        if tool_name not in self.policy.get("allowed_tools", []):
+            return AuthorizationResult("deny", "Tool is not allowed")
         if context.get("environment") == "production":
             if tool_name in self.policy.get("production_restricted", []):
-                return AuthorizationResult(
-                    "deny",
-                    "This action is not permitted in the production environment"
-                )
-
+                return AuthorizationResult("deny", "Production policy denies action")
+        if tool_name == "write_file":
+            try:
+                root = Path(self.policy["workspace"]).resolve()
+                candidate = Path(arguments["path"])
+                if not candidate.is_absolute():
+                    return AuthorizationResult("deny", "Use an absolute path")
+                candidate = candidate.resolve()
+                if not candidate.is_relative_to(root):
+                    return AuthorizationResult("deny", "Path leaves the workspace")
+                arguments["path"] = str(candidate)
+                protected = [Path(p).resolve() for p in self.policy.get("protected_paths", [])]
+            except (KeyError, TypeError, ValueError, OSError):
+                return AuthorizationResult("deny", "Invalid path or policy")
+            if any(candidate.is_relative_to(p) for p in protected):
+                return AuthorizationResult("require_human_approval", "Protected path")
         return AuthorizationResult("allow", "")
 
 
 def run_tool_with_authorization(tool_name, arguments, authorizer, context):
     """Wrapper that passes every tool call through the authorization layer."""
+    arguments = dict(arguments)
     result = authorizer.authorize(tool_name, arguments, context)
 
     if result.decision == "deny":
@@ -152,9 +144,11 @@ Policies must be explicit and verifiable:
 
 ## Pre-Authorization in MCP Environments
 
-In Model Context Protocol deployments, the client (agent harness) receives a list of tools from the server and executes them. The MCP specification requires the client to obtain **explicit user consent** before executing any tool call. This is the pre-action authorization pattern enforced at the protocol level.
+MCP describes consent and authorization principles, but the protocol cannot enforce them by itself. The July 2026 specification gives implementation guidance. It does not require a new human approval dialog for every tool call.
 
-In practice, every MCP tool call should pass through an authorization layer in the client harness. Implementations that automatically execute MCP server tools without authorization inherit the full prompt-injection risk described in chapter 8-1.
+The host must apply the granted scope at execution time. Bind approval to the actual tool, normalized arguments, target, and user. Never accept expanded permissions from a server description. For HTTP authorization, use audience-validated tokens and avoid passing unrelated upstream tokens through the MCP server.
+
+The example denies unknown tools and resolves paths before applying policy. Production restrictions run before an approval branch, so approval cannot override a denial. Path normalization alone does not prevent a symlink race. Use OS-enforced boundaries and safe file-opening mechanisms as well. Every execution route must enforce the same policy.
 
 ## Coupling Authorization with an Audit Log
 

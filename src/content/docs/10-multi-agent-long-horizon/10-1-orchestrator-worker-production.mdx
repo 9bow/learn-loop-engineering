@@ -13,7 +13,7 @@ estimated_minutes: 32
 references:
   - title: "Anthropic — How we built our multi-agent research system"
     url: "https://www.anthropic.com/engineering/multi-agent-research-system"
-    accessed: "2026-06-30"
+    accessed: "2026-10-23"
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
@@ -23,7 +23,7 @@ references:
 
 4-4 챕터에서 다룬 오케스트레이터-워커 패턴은 개념적으로 단순하다. 하지만 실제로 이 구조를 프로덕션에서 운영하는 것은 다른 문제다. Anthropic의 멀티에이전트 리서치 시스템은 이 구조를 실전에 적용한 사례 중 가장 구체적으로 공개된 시스템이다.
 
-핵심 통계부터 살펴보자. 단일 Claude Opus 에이전트와 동일한 연구 작업을 멀티에이전트 시스템으로 수행했을 때, 내부 평가에서 **성능이 90.2% 향상**됐다. 이 시스템의 토큰 사용량은 단일 채팅 대비 **약 15배**에 달한다. 그리고 성능 분산의 **80%가 토큰 사용량으로 설명**된다. 즉, 더 많은 토큰을 쓸수록 더 좋은 결과가 나온다는 상관관계가 강하게 나타났다.
+핵심 통계부터 살펴보자. 단일 Claude Opus 에이전트와 동일한 연구 작업을 멀티에이전트 시스템으로 수행했을 때, 내부 평가에서 **성능이 90.2% 향상**됐다. 이 시스템의 토큰 사용량은 단일 채팅 대비 **약 15배**에 달한다. 글의 BrowseComp 분석에서는 토큰 사용량만으로 성능 분산의 80%를, 토큰 사용량·도구 호출 수·모델 선택을 함께 고려하면 95%를 설명했다고 보고한다. 토큰 하나의 인과 효과나 모든 작업에서 멀티에이전트가 우월하다는 증거는 아니다.
 
 ## 시스템 구조
 

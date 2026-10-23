@@ -61,7 +61,7 @@
   },
   {
     "id": "q6",
-    "question": "What is the cache write premium and cache read (cache hit) discount for Anthropic prompt caching?",
+    "question": "For a 5-minute cache write and the standard 0.1 read multiplier, what are the price multipliers?",
     "options": [
       "100% premium for writes, 50% discount for reads",
       "25% premium for writes, 90% discount for reads (10% of base price)",
@@ -69,19 +69,19 @@
       "Both writes and reads at the same base price"
     ],
     "answer": 1,
-    "explanation": "Chapter 9-5 states that Anthropic prompt caching charges 125% of the base input token price on a cache write (25% premium) and 10% on a cache hit (90% discount)."
+    "explanation": "The standard example uses 1.25 for a 5-minute write and 0.1 for a read. A 1-hour write uses 2.0, and some models have lower read prices."
   },
   {
     "id": "q7",
-    "question": "What is the break-even condition for prompt caching?",
+    "question": "With a 1.25 write multiplier and 0.1 read multiplier, when does an equal-sized prefix first save money?",
     "options": [
       "1 cache hit after a cache write",
       "At least 2 cache hits after a cache write",
       "At least 5 cache hits after a cache write",
       "When no cache misses occur at all"
     ],
-    "answer": 1,
-    "explanation": "Chapter 9-5 explains that the cost of a cache write (125%) breaks even after 2 cache hits, and notes that the caching benefit is large for long-running loops."
+    "answer": 0,
+    "explanation": "One write and one hit cost 1.35 base-price units instead of 2. The first subsequent hit already saves money."
   },
   {
     "id": "q8",
@@ -154,5 +154,17 @@
     ],
     "answer": 1,
     "explanation": "Chapter 9-5 explains that because KV caching operates on prefix matching, stable content such as system prompts, tool definitions, and examples should be placed at the front of context and per-request variable user input at the back, in order to maximize cache hit rate."
+  },
+  {
+    "id": "q14",
+    "question": "Which metric asks whether every one of k trials succeeds?",
+    "options": [
+      "pass@k",
+      "pass^k",
+      "The final response length",
+      "Cache hit rate"
+    ],
+    "answer": 1,
+    "explanation": "pass@k measures at least one success. pass^k measures success on all k trials. Report trial budgets and correlated failures."
   }
 ]

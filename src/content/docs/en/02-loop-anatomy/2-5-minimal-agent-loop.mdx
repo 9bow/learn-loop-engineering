@@ -29,64 +29,50 @@ The minimal agent in this chapter has exactly three essential elements:
 2. **stop_reason branching** — exits on `end_turn`, continues on `tool_use`.
 3. **max-iteration guard** — enforces a finite upper bound to prevent infinite loops.
 
-## Complete Implementation (48 lines)
+## Complete Implementation
 
 This is illustrative pseudocode; actual API signatures differ.
 
 ```python
-# minimal_agent.py — minimal agent loop (48 lines)
-import json
-from typing import Any
-
-MAX_ITERATIONS = 20  # infinite-loop prevention guard
+MAX_ITERATIONS = 20
 
 
-def execute_tool(name: str, inputs: dict[str, Any]) -> str:
-    """Receive a tool name and inputs; return the result as a string."""
-    if name == "calculator":
-        expression = inputs["expression"]
-        try:
-            return str(eval(expression, {"__builtins__": {}}, {}))
-        except Exception as e:
-            return f"Calculation error: {e}. Please provide a valid expression."
-    raise ValueError(f"Unknown tool: {name}")
+def execute_tool(name, inputs):
+    if name != "multiply":
+        raise ValueError("Unknown tool")
+    a, b = inputs["a"], inputs["b"]
+    if any(type(x) is not int or abs(x) > 10**9 for x in (a, b)):
+        raise ValueError("Use integers between -10**9 and 10**9")
+    return str(a * b)
 
 
-def run_agent(task: str, model, tools: list[dict]) -> str:
-    """
-    Minimal agent loop.
-    Returns: final text response
-    Raises: RuntimeError if max iterations exceeded
-    """
+def run_agent(task, model, tools):
     messages = [{"role": "user", "content": task}]
-
-    for iteration in range(MAX_ITERATIONS):
-        # ── REASON ──────────────────────────────────────────
+    for _ in range(MAX_ITERATIONS):
         response = model.generate(messages=messages, tools=tools)
-
-        # ── TERMINATION CONDITION ────────────────────────────
+        messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason == "end_turn":
             return response.text
-
-        # ── ACT: execute tools ───────────────────────────────
-        tool_results = []
+        if response.stop_reason != "tool_use" or not response.tool_calls:
+            raise RuntimeError(f"Unexpected stop: {response.stop_reason}")
+        results = []
         for call in response.tool_calls:
-            result = execute_tool(call.name, call.input)
-            tool_results.append({
-                "tool_use_id": call.id,
-                "content": result,
+            try:
+                result = execute_tool(call.name, call.input)
+                is_error = False
+            except (KeyError, TypeError, ValueError) as error:
+                result, is_error = str(error), True
+            results.append({
+                "type": "tool_result", "tool_use_id": call.id,
+                "content": result, "is_error": is_error,
             })
-
-        # ── OBSERVE: add results to context ─────────────────
-        messages.append({"role": "assistant", "content": response.tool_calls})
-        messages.append({"role": "tool",      "content": tool_results})
-
-    # ── MAX ITERATION EXCEEDED ───────────────────────────────
-    raise RuntimeError(
-        f"Agent did not complete within {MAX_ITERATIONS} iterations. "
-        "Try breaking the task into smaller pieces, or increase MAX_ITERATIONS."
-    )
+        messages.append({"role": "user", "content": results})
+    raise RuntimeError("Iteration budget exhausted; task is incomplete")
 ```
+
+The adapter preserves the complete assistant response, including tool-call IDs, and exposes normalized `tool_calls`. This example returns Anthropic-style `tool_result` blocks in a `user` message. An OpenAI adapter must serialize its own API items instead.
+
+The arithmetic tool accepts bounded integers and performs multiplication directly. Empty builtins do not make Python `eval` a sandbox. Do not evaluate model-generated expressions in the host process. An iteration limit also does not bound a slow tool. Add tool deadlines and resource limits before production use.
 
 ## Code Walkthrough: The Role of Each Part
 
@@ -104,9 +90,9 @@ run_agent("task", model, tools)
        ├─ if end_turn: return              ← normal exit
        │
        ├─ for call in tool_calls:          ← ACT
-       │    result = execute_tool(call)
+       │    result = execute_tool(call.name, call.input)
        │
-       └─ messages += [assistant, tool]    ← OBSERVE (context accumulates)
+       └─ messages += [assistant, user/tool_result]    ← OBSERVE (context accumulates)
   │
   └─ raise RuntimeError                   ← abnormal exit (MAX exceeded)
 ───────────────────────────────────────────────────────────
@@ -117,31 +103,19 @@ The **MAX_ITERATIONS guard** is the most important safety mechanism in the loop.
 ## Tool Definition and Usage Example
 
 ```python
-# Tool list definition
-calculator_tool = {
-    "name": "calculator",
-    "description": "Evaluates a mathematical expression.",
+multiply_tool = {
+    "name": "multiply",
+    "description": "Multiply two bounded integers.",
     "input_schema": {
         "type": "object",
-        "properties": {
-            "expression": {
-                "type": "string",
-                "description": "Expression to evaluate (e.g. '(2 + 3) * 4')"
-            }
-        },
-        "required": ["expression"]
-    }
+        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        "required": ["a", "b"],
+        "additionalProperties": False,
+    },
 }
-
-# Example usage
-# result = run_agent(
-#     task="Calculate 357 times 428 and explain the result",
-#     model=my_model,
-#     tools=[calculator_tool]
-# )
-# → model calls calculator("357 * 428")
-# → receives "152796" and adds it to context
-# → returns "357 × 428 = 152,796"
+# model is an application adapter, not a provider SDK client.
+# run_agent("Calculate 357 times 428", model, [multiply_tool])
+# Tool result: "152796"
 ```
 
 ## Extending This Loop: Next Steps

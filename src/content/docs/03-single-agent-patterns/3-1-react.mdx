@@ -13,7 +13,7 @@ estimated_minutes: 30
 references:
   - title: "Yao et al. — ReAct: Synergizing Reasoning and Acting in Language Models (arXiv:2210.03629)"
     url: "https://arxiv.org/abs/2210.03629"
-    accessed: "2026-06-30"
+    accessed: "2026-10-23"
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
@@ -126,8 +126,8 @@ ReAct 논문은 두 개의 멀티스텝 태스크 벤치마크에서 실력을 �
 
 | 벤치마크 | 비교 대상 | ReAct 향상 |
 |---------|-----------|-----------|
-| ALFWorld (가정 내 작업 에이전트) | RL 기준선 | **+34% absolute** |
-| WebShop (전자상거래 탐색) | 행동 전용 기준선 | **+10% absolute** |
+| ALFWorld (가정 내 작업 에이전트) | 논문의 학습 기반 비교 방법 | **+34% absolute** |
+| WebShop (전자상거래 탐색) | 논문의 학습 기반 비교 방법 | **+10% absolute** |
 
 ALFWorld에서의 +34%는 특히 주목할 만하다. 이 벤치마크는 텍스트 기반 가상 환경에서 "책상 위 책을 책장에 꽂아라"처럼 여러 단계가 필요한 지시를 수행한다. Thought 없이 Action만 반복하는 방식(행동 전용)보다, 추론과 행동을 교차하는 ReAct가 훨씬 강건하게 작동한다는 사실을 보여준다.
 

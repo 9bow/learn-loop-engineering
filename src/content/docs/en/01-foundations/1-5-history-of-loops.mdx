@@ -23,6 +23,9 @@ references:
   - title: "Geoffrey Huntley — Ralph Wiggum as a software engineer"
     url: "https://ghuntley.com/ralph/"
     accessed: "2026-06-30"
+  - title: "Addy Osmani: Loop Engineering"
+    url: "https://addyosmani.com/blog/loop-engineering/"
+    accessed: "2026-10-23"
 ---
 
 ## Milestone Summary
@@ -34,7 +37,7 @@ references:
 | 2023.06 | Lilian Weng's post | Planning · Memory · Tool Use three-axis framework |
 | 2024.12 | Anthropic BEA guide | Production-grade workflow and agent design principles |
 | 2025.07 | Ralph technique | Fresh-context + single-purpose loop principle |
-| 2025~ | "Loop Engineering" | Loop design recognized as an independent engineering discipline |
+| 2026.06 | "Loop Engineering" article | Osmani describes agent-work orchestration as a design layer |
 
 ## Why the History Is Short
 
@@ -58,7 +61,7 @@ Agentic Loop Timeline
 2025.07  Geoffrey Huntley's "Ralph" technique
          while :; do cat PROMPT.md | claude-code; done
 
-2025 ~   "Loop Engineering" term emerges (Osmani, Cherny)
+2026.06  Osmani publishes "Loop Engineering"
          Loop design recognized as an independent discipline
 ──────────────────────────────────────────────────────────────
 ```
@@ -98,9 +101,9 @@ while :; do cat PROMPT.md | claude-code; done
 
 This looks almost trivially simple, but it encodes several important principles. Context is reset on every iteration (fresh context). A stable spec document (PROMPT.md) is re-injected each time. Each loop run pursues a single goal. The hallucination-accumulation problem is solved by discarding context rather than preserving it. "Run the loop — but keep the loop simple" was the counterintuitive wisdom.
 
-## 2025 Onward — "Loop Engineering" Emerges
+## June 2026: A Loop Engineering Framing
 
-From 2025, Addy Osmani and Boris Cherny (lead of Claude Code) articulated a perspective that has been spreading: loop design itself is an independent engineering discipline. Moving beyond "writing a good prompt" or "structuring a good context window," the focus shifted to the **structure of the loop itself** — its termination conditions, state management, cost controls, and reliability — as the primary engineering competency.
+Osmani's June 2026 article describes a layer for orchestrating agent work. It does not establish a formal standard or claim the invention of agent loops. Moving beyond "writing a good prompt" or "structuring a good context window," the focus shifted to the **structure of the loop itself** — its termination conditions, state management, cost controls, and reliability — as the primary engineering competency.
 
 What this compressed history teaches us is simple: agentic loops began in theory, were tempered by failure, extracted principles from that failure, and are now in the process of systematizing those principles. The next section explores those principles one anatomical layer at a time.
 

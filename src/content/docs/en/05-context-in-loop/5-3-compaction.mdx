@@ -20,6 +20,9 @@ references:
   - title: "Anthropic — Effective harnesses for long-running agents"
     url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
     accessed: "2026-06-30"
+  - title: "Anthropic: How Claude Code works"
+    url: "https://code.claude.com/docs/en/how-claude-code-works"
+    accessed: "2026-10-23"
 ---
 
 ## The Loop Must Keep Running
@@ -36,7 +39,7 @@ Two types of thresholds are typically used as triggers.
 ┌───────────────────────────────────────────────────────┐
 │               Compaction Trigger Criteria              │
 ├───────────────────────────────────────────────────────┤
-│ ① Token count threshold  Start compaction at 70–80%  │
+│ ① Token count threshold  Reserve room before the next request  │
 │    of the full window capacity.                       │
 │    E.g. 128k window → compact at ~90k tokens         │
 │                                                       │
@@ -47,7 +50,7 @@ Two types of thresholds are typically used as triggers.
 └───────────────────────────────────────────────────────┘
 ```
 
-Compacting too early loses useful information. Compacting too late risks a context-limit error on the next call. In practice, the 70–80% mark is the most common empirical trigger point.
+Compacting too early loses useful information. Compacting too late risks a context-limit error. Reserve tokens for the next tool result, model output, and summary. A 70–80% trigger is an example configuration, not a measured universal default. Choose it from the model limit and observed request sizes.
 
 ## Key Compression Techniques
 
@@ -121,13 +124,11 @@ def reinitialize_context(task: str, state_file: str) -> list:
 
 ## How Claude Code and Codex Do It
 
-Looking at how real production agents handle compaction clarifies the underlying design principles.
+Claude Code clears older tool outputs and summarizes conversation history as context fills. Its public documentation does not establish 92% as a fixed product contract. Use `/context` to inspect usage and `/compact` to request a focused summary.
 
-According to Anthropic's context engineering article, Claude Code handles a full context window by compressing the entire conversation and restarting with a new context. Recent file changes and current task state are always preserved as a priority.
+For a custom loop, preserve complete tool-call and tool-result pairs. Cutting the last five messages can split a protocol exchange. Group messages into complete turns before choosing a boundary. Keep summaries at the original trust level. A summary of external content must not become a system instruction.
 
-The OpenAI Codex loop article reveals a similar approach. The long-running coding agent avoids accumulating prior tool results; instead, it combines compaction with JIT loading — files are re-read at the point they are actually needed, rather than being pre-loaded.
-
-Both systems share a common principle: **the most recent work state (latest file state, current goal, incomplete sub-tasks) must be preserved even after compaction**.
+Codex also manages context across long tasks. Do not assume that planning, execution, and evaluation each start with a clean context. Store goals, unfinished work, and source references outside the summary. Re-read current files and external state after resuming.
 
 ## The Trade-off Between Compaction and Information Loss
 

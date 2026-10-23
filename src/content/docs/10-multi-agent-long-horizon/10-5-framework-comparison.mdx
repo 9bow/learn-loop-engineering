@@ -20,6 +20,27 @@ references:
   - title: "OpenAI — New tools for building agents (Agents SDK)"
     url: "https://openai.com/index/new-tools-for-building-agents/"
     accessed: "2026-06-30"
+  - title: "OpenAI Agents SDK: Guardrails"
+    url: "https://openai.github.io/openai-agents-python/guardrails/"
+    accessed: "2026-10-23"
+  - title: "OpenAI Agents SDK: Sessions"
+    url: "https://openai.github.io/openai-agents-python/sessions/"
+    accessed: "2026-10-23"
+  - title: "OpenAI Agents SDK: Human approval"
+    url: "https://openai.github.io/openai-agents-python/human_in_the_loop/"
+    accessed: "2026-10-23"
+  - title: "Microsoft: AutoGen repository and successor guidance"
+    url: "https://github.com/microsoft/autogen"
+    accessed: "2026-10-23"
+  - title: "CrewAI: Flows"
+    url: "https://docs.crewai.com/en/concepts/flows"
+    accessed: "2026-10-23"
+  - title: "Hugging Face: Secure code execution"
+    url: "https://huggingface.co/docs/smolagents/en/tutorials/secure_code_execution"
+    accessed: "2026-10-23"
+  - title: "LangGraph: Persistence"
+    url: "https://docs.langchain.com/oss/python/langgraph/persistence"
+    accessed: "2026-10-23"
 ---
 
 ## 프레임워크를 선택하는 이유와 주의점
@@ -32,7 +53,7 @@ references:
 
 **핵심 패러다임**: 에이전트 루프를 **유향 그래프(directed graph)**로 모델링한다. 노드는 LLM 호출이나 도구 실행을 나타내고, 엣지는 상태 전이를 나타낸다. **조건부 엣지(conditional edge)**로 에이전트의 결정에 따라 다른 노드로 분기할 수 있다.
 
-**상태 관리**: `TypedDict`로 정의된 공유 상태가 그래프 전체를 흐른다. 각 노드는 상태를 읽고 업데이트하는 순수 함수처럼 동작한다. **체크포인터(checkpointer)** 가 매 노드 실행마다 상태를 저장해 롤백과 재시작을 지원한다.
+**상태 관리**: `TypedDict`로 정의된 공유 상태가 그래프 전체를 흐른다. 각 노드는 상태를 읽고 업데이트하는 순수 함수처럼 동작한다. 설정한 **체크포인터(checkpointer)**가 super-step 경계의 상태를 저장한다. 병렬 노드와 외부 부작용의 재실행 경계는 별도로 설계한다.
 
 **인터럽트(interrupt)**: LangGraph는 그래프 실행을 특정 노드에서 일시 중단하고 인간의 승인을 받을 수 있는 `interrupt()` 메커니즘을 제공한다. 이것이 6-5 챕터에서 다룬 휴먼인더루프(human-in-the-loop) 패턴의 구체적 구현이다.
 
@@ -55,13 +76,11 @@ references:
 
 ## OpenAI Agents SDK: 핸드오프 중심의 단순한 프리미티브
 
-**핵심 패러다임**: 세 가지 프리미티브 — **Agent, Handoff, Guardrail** — 로 구성된 미니멀한 추상화. 10-2 챕터에서 자세히 다뤘다. 에이전트가 피어(peer)에게 직접 제어권을 넘기는 핸드오프 모델을 기본으로 한다.
+SDK는 핸드오프와 에이전트를 도구로 사용하는 매니저 방식을 모두 지원한다. 전문가가 대화를 이어받을지, 매니저에게 결과만 반환할지 선택한다.
 
-**상태 관리**: 컨텍스트 오브젝트를 통해 실행 전반에 걸쳐 공유 데이터를 전달한다. LangGraph처럼 그래프 구조로 명시적 상태를 정의하지 않고, 에이전트의 대화 컨텍스트가 자연스럽게 상태를 표현한다.
+`SQLiteSession` 같은 세션 저장소로 대화 기록을 유지할 수 있고, 인간 승인은 실행 중단과 재개 가능한 run state로 처리한다. 둘 다 외부 서비스 전체의 트랜잭션을 보장하는 기능은 아니다.
 
-**Guardrail**: 에이전트 입출력을 병렬로 검증하는 레이어다. 모델 추론과 독립적으로 동작하므로 결정론적 안전 체크가 가능하다. 출력이 Guardrail을 통과하지 못하면 에이전트가 재시도하거나 에러를 발생시킨다.
-
-**적합한 상황**: 명확한 전문화 경계를 가진 에이전트 집합, 선형적 위임 체인, Python 중심 팀, 빠른 프로토타이핑.
+가드레일은 일반 코드나 다른 모델을 사용할 수 있다. 병렬 입력 가드레일이 끝나기 전에 에이전트가 도구를 실행할 수 있으므로 실행을 대기시켜야 한다면 차단 모드를 사용한다. 민감한 도구의 권한은 실행 경계에서 따로 강제한다.
 
 ## CrewAI: 역할 기반의 팀 협업
 
@@ -73,11 +92,9 @@ references:
 
 ## AutoGen: 대화 기반 멀티에이전트
 
-**핵심 패러다임**: 에이전트들이 **메시지(message)를 주고받는 대화**로 협력한다. Microsoft Research에서 개발했으며, `UserProxyAgent`와 `AssistantAgent`의 대화로 기본 패턴을 구성한다. 코드를 실행하고 그 결과를 대화로 공유하는 코드 실행 루프가 내장돼 있다.
+AutoGen은 메시지 기반 협업을 학습하기 좋은 사례지만 API 세대를 구분해야 한다. `GroupChatManager` 중심 예제는 구세대 API의 설명이다. 이후 AgentChat은 이벤트 기반 Core와 별도 모델·실행 확장 위에서 동작한다.
 
-**그룹 채팅(GroupChat)**: 여러 에이전트가 하나의 채팅방에서 메시지를 주고받는 패턴을 지원한다. `GroupChatManager`가 다음 발언자를 선택한다.
-
-**적합한 상황**: 연구·실험적 멀티에이전트 상호작용, 코드 실행이 중심인 작업, 에이전트 간 대화를 자연어로 관찰해야 하는 디버깅 환경.
+2026년 10월 23일 확인한 Microsoft 저장소는 신규 프로젝트에 Microsoft Agent Framework를 안내하고 기존 사용자에게 마이그레이션 가이드를 제공한다. AutoGen은 기존 시스템·역사적 비교로 다룬다. 신규 배포는 예전 인기도가 아니라 후속 프레임워크의 릴리즈·마이그레이션 계약을 검토해 선택한다.
 
 ## smolagents: CodeAct와 경량화
 
@@ -89,16 +106,17 @@ Hugging Face가 개발했으며, 경량화와 최소 의존성을 설계 철학�
 
 ## 프레임워크 비교표
 
-| 기준 | LangGraph | Agents SDK | CrewAI | AutoGen | smolagents |
-|---|---|---|---|---|---|
-| 핵심 추상화 | 상태 그래프 | Agent/Handoff | Role/Task | Agent 대화 | CodeAct |
-| 제어 흐름 | 명시적 그래프 | 핸드오프 체인 | 순차/계층 | 대화 기반 | 코드 실행 |
-| 상태 관리 | TypedDict + 체크포인터 | 컨텍스트 오브젝트 | Task 출력 전달 | 메시지 히스토리 | 코드 변수 |
-| 체크포인트 | 내장 (SQLite/Redis) | 미내장 | 미내장 | 미내장 | 미내장 |
-| 휴먼인더루프 | interrupt() 내장 | Guardrail | 수동 구현 | UserProxy | 수동 구현 |
-| 모델 공급자 | LLM 공개 | OpenAI 중심 | 다양 | 다양 | 오픈소스 강점 |
-| 학습 곡선 | 중간-높음 | 낮음 | 낮음 | 낮음 | 낮음 |
-| 프로덕션 성숙도 | 높음 | 높음 | 중간 | 중간 | 낮음 |
+근거 없는 성숙도 등급 대신 실제 메커니즘을 비교한다. 아래는 2026년 10월 23일 확인 기준 기능 안내다.
+
+| 프레임워크 | 제어 모델 | 영속화·검토 |
+|---|---|---|
+| LangGraph | 명시적 상태 그래프 | 설정한 체크포인터와 `interrupt()` |
+| Agents SDK | 핸드오프 또는 에이전트 도구 | 세션 저장소와 승인 중단 |
+| CrewAI | Crew와 이벤트 기반 Flow | Flow 상태와 설정한 영속화 |
+| AutoGen | AgentChat과 이벤트 기반 Core | 기존 시스템 유지·이관 검토 |
+| smolagents | CodeAgent 또는 도구 호출 | 실행기 격리와 애플리케이션 상태 정책 |
+
+대화 메모리·프로세스 장애 복구·외부 행동 중복 방지는 별도 요구사항이다. 선택한 저장소에서 각각 테스트한다. 인메모리 saver만으로 프로세스 종료 후 데이터를 복구할 수는 없다.
 
 ## 선택 기준
 
@@ -110,11 +128,11 @@ Hugging Face가 개발했으며, 경량화와 최소 의존성을 설계 철학�
 
 **도메인 전문가가 에이전트를 구성해야 하는가?** → CrewAI. 역할과 목표로 구성하는 인터페이스가 비개발자에게 친숙하다.
 
-**에이전트 간 대화를 자연어로 관찰해야 하는가?** → AutoGen. 대화 로그가 시스템 동작을 직관적으로 보여준다.
+**에이전트 간 대화를 자연어로 관찰해야 하는가?** → 메시지 기반 협업과 로그를 검토한다. 신규 Microsoft 기반 시스템이라면 Microsoft Agent Framework도 비교한다.
 
 **오픈소스 모델을 쓰거나 코드 실행이 핵심인가?** → smolagents. CodeAct 패러다임과 경량 설계가 강점이다.
 
-**검증된 체크포인트와 롤백이 프로덕션에 필요한가?** → LangGraph가 현재 가장 성숙한 솔루션이다.
+**검증된 체크포인트와 롤백이 프로덕션에 필요한가?** → 저장소 영속성·재실행 경계·부작용 중복 방지를 실제 장애 실험으로 비교한다.
 
 ## 섹션 마무리
 

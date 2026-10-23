@@ -20,6 +20,12 @@ references:
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
+  - title: "LangGraph: Checkpointers"
+    url: "https://docs.langchain.com/oss/python/langgraph/checkpointers"
+    accessed: "2026-10-23"
+  - title: "Anthropic: Scaling Managed Agents (April 8, 2026)"
+    url: "https://www.anthropic.com/research/managed-agents"
+    accessed: "2026-10-23"
 ---
 
 ## The Cost of Interruption
@@ -61,33 +67,23 @@ External state references are especially important. If the loop has already crea
 
 ## LangGraph's Checkpointer
 
-LangGraph includes a built-in **checkpointer** that automatically persists state between graph nodes. After each node executes, a state snapshot is saved. On failure, execution resumes from the last successfully saved node.
+A configured LangGraph checkpointer stores graph state at super-step boundaries. A super-step can execute several nodes in parallel. Individual completed-node writes help recovery, but they are not separate full checkpoints.
 
 ```python
-# Conceptual pseudocode — actual API signatures may differ
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import StateGraph
+from langgraph.checkpoint.memory import InMemorySaver
 
-# In-memory checkpointer (use PostgreSQL or Redis in production)
-checkpointer = MemorySaver()
-
-builder = StateGraph(AgentState)
-builder.add_node("reason", reason_node)
-builder.add_node("act", act_node)
-builder.add_node("observe", observe_node)
-builder.add_edge("reason", "act")
-builder.add_edge("act", "observe")
-builder.add_conditional_edges("observe", should_continue)
-
-graph = builder.compile(checkpointer=checkpointer)
-
-# The thread_id is the resumption key
+# builder is the StateGraph constructed by the application.
+# This example stores state only for the lifetime of this process.
+graph = builder.compile(checkpointer=InMemorySaver())
 config = {"configurable": {"thread_id": "task-abc-001"}}
-
 result = graph.invoke(initial_state, config)
 ```
 
-The `thread_id` is the key to resumption. Re-invoking `graph.invoke` with the same `thread_id` does not restart from the beginning — it picks up from the last saved checkpoint.
+A `thread_id` identifies saved state. It does not turn any repeated call into automatic crash recovery. A new input can start a new turn in the same thread. Resume failures and human interruptions through the documented recovery path for that graph and version.
+
+For recovery after a process restart, configure durable storage and test termination and restart. Checkpoints do not roll back payments, emails, or database writes. Those actions need operation IDs, deduplication, or compensation.
+
+Anthropic's April 2026 Managed Agents design separates the session log, agent harness, and sandbox. A durable session is distinct from the current context window or a replaceable execution container. This separation prevents loss of the execution process from automatically becoming loss of task history.
 
 ## Git-Commit-Per-Session Pattern
 
@@ -114,7 +110,7 @@ for iteration in range(MAX_ITER):
         )
 ```
 
-On failure, `git log` reveals the last checkpoint, and `git reset` to that commit restores a clean state for resumption. Anthropic's context engineering guide notes that Claude Code follows this pattern, committing after significant changes.
+Inspect the saved commit and current changes before recovery. A separate worktree can preserve unfinished work. Git history restores tracked files, not external actions or database state.
 
 ## Idempotency: Same Action, Same Result
 
@@ -147,16 +143,16 @@ For external API calls where idempotency must be enforced server-side, use an **
 import hashlib
 import json
 
-def make_idempotency_key(task_id: str, action: dict) -> str:
+def make_idempotency_key(task_id: str, operation_id: str, action: dict) -> str:
     """
     Generate a deterministic key from the task ID and action content.
-    The same task performing the same action always produces the same key.
+    Retries reuse the persisted logical operation ID and payload.
     """
-    content = json.dumps({"task_id": task_id, "action": action}, sort_keys=True)
+    content = json.dumps({"task_id": task_id, "operation_id": operation_id, "action": action}, sort_keys=True)
     return hashlib.sha256(content.encode()).hexdigest()
 
-def call_external_api(task_id: str, action: dict):
-    key = make_idempotency_key(task_id, action)
+def call_external_api(task_id: str, operation_id: str, action: dict):
+    key = make_idempotency_key(task_id, operation_id, action)
     return api_client.post(
         "/operations",
         json=action,
@@ -165,6 +161,8 @@ def call_external_api(task_id: str, action: dict):
 ```
 
 When the server has already recorded that key, a repeated request returns the previous result without executing the operation again. This pattern is essential for non-idempotent operations like payments, message sends, and database inserts.
+
+Create and persist an operation ID before the first attempt. Reuse it for retries of that action. Assign a different ID to an intentional second action, even with the same payload. The server must implement deduplication and define its retention period. Sending a header alone does not guarantee exactly-once effects.
 
 ## How Checkpointing and Idempotency Relate
 

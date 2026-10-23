@@ -13,7 +13,7 @@ estimated_minutes: 28
 references:
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
-    accessed: "2026-06-30"
+    accessed: "2026-10-23"
   - title: "Simon Willison — An LLM agent runs tools in a loop to achieve a goal"
     url: "https://simonwillison.net/2025/Sep/18/agents/"
     accessed: "2026-06-30"
@@ -28,11 +28,11 @@ references:
 
 Anthropic's production guide puts it this way: *"An agent is just an LLM using tools in a loop based on environmental feedback."* Solomon Hykes frames it similarly: *"An AI agent is an LLM using its environment in a loop."* Simon Willison compresses it to: *"An LLM agent runs tools in a loop to achieve a goal."*
 
-Three keywords appear in all three definitions: **tool**, **loop**, and **environmental feedback**. Without all three, the system is not an agent. With all three, it is. A simple criterion — but a powerful one.
+This course uses tools, a loop, and environmental feedback as a practical working definition. Agent terminology varies across research and products. A model can select actions while the host enforces budgets, completion criteria, and permissions.
 
 ## The Augmented LLM: Building Block of Agentic Systems
 
-Lilian Weng's June 2023 survey "LLM Powered Autonomous Agents" introduced the concept of a **three-capability-augmented LLM** as the core unit of agentic architectures.
+Lilian Weng's 2023 survey organizes agents around planning, memory, and tool use. Anthropic's 2024 guide presents the augmented LLM with retrieval, tools, and memory. These are related teaching frameworks, not the same attribution.
 
 ```text
 ┌─────────────────────────────────────────────────────────┐

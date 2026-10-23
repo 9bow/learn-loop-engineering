@@ -20,6 +20,12 @@ references:
   - title: "Anthropic — How we built our multi-agent research system"
     url: "https://www.anthropic.com/engineering/multi-agent-research-system"
     accessed: "2026-06-30"
+  - title: "OpenTelemetry: GenAI agent spans, Development"
+    url: "https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md"
+    accessed: "2026-10-23"
+  - title: "OpenTelemetry: MCP conventions, Development"
+    url: "https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md"
+    accessed: "2026-10-23"
 ---
 
 ## Why Agent Loops Need Specialized Tracing
@@ -27,6 +33,10 @@ references:
 A standard HTTP request is straightforward: one request arrives, gets processed, and a response goes out. The start and end are clear, and latency is a single number. Agent loops are different. A single loop execution can involve dozens of model calls, multiple tool invocations, and sub-agent delegations. Which iteration was slow? Which tool call threw an error? How many iterations did the sub-agent take? Without **distributed tracing**, all of this becomes a black box.
 
 OpenTelemetry addresses this problem by defining **gen_ai semantic conventions**. Even when the model provider, framework, and tool execution layer are each written by different teams, using the same attribute names lets every span be unified into a single trace tree for inspection.
+
+As of October 23, 2026, GenAI conventions live in the separate OpenTelemetry `semantic-conventions-genai` repository. Agent spans remain in Development status. Pin the convention and instrumentation versions together. Do not present this schema as a stable compatibility contract.
+
+The following tree shows one possible application structure, not every supported span type. Use `INTERNAL` for an in-process agent and `CLIENT` for a remote agent call. Model operations can use `chat` or `generate_content`, depending on the API. Record the operation that actually occurs.
 
 ## The gen_ai Span Hierarchy
 
@@ -60,7 +70,7 @@ The **invoke_agent span** wraps the entire lifetime of an agent loop. It opens w
 
 | Attribute | Span Type | Example Value |
 |---|---|---|
-| `gen_ai.system` | all | `"anthropic"`, `"openai"` |
+| `gen_ai.provider.name` | all | `"anthropic"`, `"openai"` |
 | `gen_ai.operation.name` | all | `"invoke_agent"`, `"chat"`, `"execute_tool"` |
 | `gen_ai.request.model` | chat | `"claude-sonnet-4-5"` |
 | `gen_ai.agent.name` | invoke_agent | `"research_agent"` |
@@ -90,7 +100,7 @@ def run_agent_loop(task: str, tools: list) -> str:
     with tracer.start_as_current_span(
         "invoke_agent",
         attributes={
-            "gen_ai.system": "anthropic",
+            "gen_ai.provider.name": "anthropic",
             "gen_ai.operation.name": "invoke_agent",
             "gen_ai.agent.name": "research_agent",
         }
@@ -135,7 +145,22 @@ def run_agent_loop(task: str, tools: list) -> str:
 
 ## Tracing MCP Servers
 
-MCP servers often run as separate processes or services from the main agent loop. When an agent calls an MCP tool and includes the `traceparent` header, the MCP server's internal processing spans join the same trace tree. The MCP specification provides propagation points for exactly this purpose, enabling you to answer questions like "which MCP tool consumed the most latency across the entire loop run?"
+HTTP `traceparent` connects HTTP requests, but an MCP stream can contain several JSON-RPC messages. The Development MCP convention propagates trace context in each request's `params._meta`. The receiving side extracts that context as the remote parent.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "search",
+    "arguments": {"query": "agent evaluation"},
+    "_meta": {"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}
+  }
+}
+```
+
+The Python example above shows HTTP propagation only. Add message-level injection and extraction in the MCP adapter. A trace ID grants no access rights. Keep prompts, tool arguments, secrets, and personal data out of telemetry by default. Enable content capture only with an explicit retention and access policy.
 
 ## What Distributed Tracing Gives You
 

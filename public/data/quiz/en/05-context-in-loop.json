@@ -61,15 +61,15 @@
   },
   {
     "id": "q6",
-    "question": "What is the typical token usage threshold that triggers Compaction?",
+    "question": "How must a loop choose its compaction trigger?",
     "options": [
-      "When 50% of the context window is reached",
-      "When 70–80% of the context window is reached",
-      "When 95% of the context window is reached",
-      "At regular intervals every 10 iterations"
+      "Use 50% for every model",
+      "Reserve space for the next tool result, output, and summary",
+      "Always wait until 99%",
+      "Use exactly ten iterations"
     ],
     "answer": 1,
-    "explanation": "Chapter 5-3 states that the typical trigger point for Compaction is at 70–80% of the context window, and adds that Claude Code uses a higher 92% threshold."
+    "explanation": "Thresholds depend on the model and configuration. A 70–80% example and a claimed fixed 92% value are not universal defaults."
   },
   {
     "id": "q7",

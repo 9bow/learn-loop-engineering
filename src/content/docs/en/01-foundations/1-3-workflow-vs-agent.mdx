@@ -23,7 +23,7 @@ references:
 
 The first question to ask when designing any agentic system is: **"Who decides what happens next?"** The answer to that question is what separates workflows from agents.
 
-A **workflow** is a system where control flow is hard-coded by the developer. The developer pre-defines "do A, then B; if condition C, go to D, otherwise E." The LLM plays a role at individual nodes — generating text or making a classification — but it never changes the structure of the pipeline itself. The execution path is always predictable and deterministic.
+A **workflow** is a system where control flow is hard-coded by the developer. The developer pre-defines "do A, then B; if condition C, go to D, otherwise E." The LLM plays a role at individual nodes — generating text or making a classification — but it never changes the structure of the pipeline itself. Code defines the available paths. Model-based branches, external data, and retries still vary, so outputs and costs are not necessarily deterministic.
 
 An **agent** is a system where the model itself decides control flow. The model chooses which tool to call, how many times to iterate, and when to stop. Code provides the loop skeleton and guardrails. The execution path is not known until runtime.
 

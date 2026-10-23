@@ -17,13 +17,16 @@ references:
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
+  - title: "Google DeepMind: AlphaEvolve impact (May 7, 2026)"
+    url: "https://deepmind.google/blog/alphaevolve-impact/"
+    accessed: "2026-10-23"
 ---
 
 ## Running Evolution as a Loop
 
 Most of the agentic loops we have examined follow a single-agent structure: one agent tries, observes, revises, and repeats. AlphaEvolve asks a different question. **What if we maintain many candidate solutions simultaneously and cross-pollinate or mutate the best ones?**
 
-AlphaEvolve, released by DeepMind in 2025, is an evolutionary loop that uses a Gemini model as a **mutation operator**. The results are striking: across a published set of mathematical problems, roughly 20% of runs improved on the previously best known solution, and the system has been used internally at Google to optimize matrix-multiplication kernels for TPUs.
+AlphaEvolve, released by DeepMind in 2025, is an evolutionary loop that uses a Gemini model as a **mutation operator**. The results are striking: among over 50 tested open mathematical problems, roughly 20% received improved best-known solutions, and the system has been used internally at Google to optimize matrix-multiplication kernels for TPUs.
 
 ## Structure of the Evolutionary Loop
 
@@ -89,6 +92,12 @@ For mathematical problems, fitness is cleanly defined: "does this matrix multipl
 
 This is what determines AlphaEvolve's applicable scope. **Without a mechanically measurable objective function, an evolutionary loop cannot function.**
 
+## From the 2025 report to 2026 applications
+
+DeepMind's May 7, 2026 follow-up reports broader applications, including Spanner compaction heuristics with 20% lower write amplification. This measures storage writes relative to the original request. It is not a 20% gain in every database metric.
+
+The engineering lesson is to define the evaluator for each domain. Measure correctness, hardware behavior, and resource use separately. These are reported application results, not a general success rate for arbitrary algorithm search.
+
 ## Connecting Back: AlphaEvolve in MDP Terms
 
 Restated in the MDP vocabulary from Section 11-1, AlphaEvolve explores the outer-loop policy `π` at the **population level**:
@@ -108,6 +117,6 @@ First, **evaluation cost is high**. Assessing hundreds to thousands of candidate
 
 Second, there is a **memory cost for maintaining the population**. Each candidate solution carries its full code, so large populations consume considerable storage and management overhead.
 
-Third, LLM mutation always produces syntactically valid code, but it does not guarantee meaningful improvement. The evolutionary process can converge to a **local optimum**.
+LLM mutation can produce syntax errors, incorrect results, or slower code. Evaluate correctness before comparing performance. The evolutionary process can converge to a **local optimum**.
 
 The next chapter goes one step further than AlphaEvolve. Instead of evolving algorithms or solutions, the agent modifies **its own scaffold code** — this is the Darwin Gödel Machine.

@@ -20,6 +20,9 @@ references:
   - title: "Anthropic — Writing effective tools for AI agents"
     url: "https://www.anthropic.com/engineering/writing-tools-for-agents"
     accessed: "2026-06-30"
+  - title: "Anthropic: Demystifying evals for AI agents"
+    url: "https://www.anthropic.com/research/demystifying-evals-for-ai-agents"
+    accessed: "2026-10-23"
 ---
 
 ## Why Separate Generation from Evaluation
@@ -65,11 +68,13 @@ Evaluator-Optimizer splits the work between a **Generator** and a dedicated **Ev
 |-----------|-------------|---------------------|
 | Who evaluates | The generating model itself | A separate Evaluator LLM |
 | Evaluation criteria | Implicit (model's internal judgment) | Explicit rubric |
-| Independence | None (self-critique) | Yes (external perspective) |
+| Evaluation role | Self-critique | Separate call, independence must be measured |
 | Sycophancy bias | High | Low (controllable by design) |
 | Complexity | Low | High (two LLMs to coordinate) |
 
 Providing the Evaluator with an **explicit rubric** is the critical design decision. "Is this translation good?" is far weaker than "Score each of the following on a 1–5 scale: accuracy, fluency, and terminology consistency." The more specific the rubric, the higher the evaluation quality.
+
+Separate roles do not guarantee independent errors. Two calls to the same model can share biases, and different models can share training sources. Treat the evaluator as a calibrated measurement component. Keep a holdout set, inspect disagreements, and evaluate actual outcomes before accepting higher scores.
 
 ## Python Implementation
 

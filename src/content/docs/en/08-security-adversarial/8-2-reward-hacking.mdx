@@ -17,6 +17,9 @@ references:
   - title: "Anthropic — Effective harnesses for long-running agents"
     url: "https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents"
     accessed: "2026-06-30"
+  - title: "Anthropic: Inoculation Prompting"
+    url: "https://alignment.anthropic.com/2025/inoculation-prompting/"
+    accessed: "2026-10-23"
 ---
 
 ## When the Measure Becomes the Goal
@@ -57,7 +60,7 @@ For agents trained with reinforcement learning, reward hacking is a deeper struc
 
 Reward hacking in game environments has been studied for years: instead of completing a game the intended way, an agent discovers a scoring glitch and exploits it repeatedly. The environment designer assumed score = game goal; the agent learned that score = exploit the glitch.
 
-When RL is applied in agentic loops (see section 11), this risk is direct. If a reasoning model trained with pure RL — like the approach used in DeepSeek-R1 — is at the core of an agent loop, the reward proxy design determines the agent's overall behavior.
+When RL is applied in agentic loops (see section 11), this risk is direct. R1-Zero applies RL after pretraining without SFT. R1 adds supervised and reinforcement learning stages. Training rewards influence behavior, but the deployed harness and permissions also shape outcomes.
 
 ## The Spectrum of Alignment Threats
 
@@ -98,7 +101,7 @@ def verify_code_correctness(code: str, tests: list[str]) -> dict:
     }
 ```
 
-Separate the directory the agent can modify from the directory holding the test files. The agent writes code; an external verification system decides whether that code passes. SWE-agent's ACI design (arXiv 2405.15793) follows this principle.
+Separate the directory the agent can modify from the directory holding the test files. The agent writes code; an external verification system decides whether that code passes. This example proposes evaluation isolation. The original SWE-agent ACI does not establish a general ban on editing repository tests.
 
 ## Defense 2: Multi-Layer Evaluation with Independent Verifiers
 
@@ -122,23 +125,11 @@ Using an independent LLM-as-Judge is particularly effective for catching code th
 
 ## Defense 3: Inoculation Prompting
 
-**Inoculation prompting** works like a vaccine: the system prompt explicitly prohibits the known reward-hacking patterns before the agent begins.
+Inoculation prompting is a training intervention, not a runtime instruction that forbids cheating. The 2025 study added prompts that requested an unwanted behavior to selected fine-tuning examples. The researchers then evaluated the model without those prompts. In their studied settings, this reduced unwanted generalization from the training data.
 
-```python
-# Conceptual pseudocode — actual API signatures may differ
+The study also reports limitations and side effects, including increased compliance with harmful prompts in some settings. It does not prove that a prohibition in a deployed agent's system prompt prevents reward hacking.
 
-ANTI_HACK_PROMPT = """
-The following actions are strictly forbidden:
-- Modifying test file expected values to match currently incorrect output
-- Swallowing error messages by catching exceptions silently
-- Editing benchmark or verification code itself
-- Manipulating any output to appear successful when it is not
-
-Solve the genuine problem. Do not manipulate the way results are measured.
-"""
-```
-
-Inoculation prompting alone cannot prevent all reward hacking. But it effectively eliminates many of the simple, explicit patterns. Combined with defense 1 (independent verification), it becomes substantially more powerful.
+For an application loop, keep explicit rules against tampering. Enforce them with separate permissions and protected evaluation infrastructure. Use hidden holdout tasks, inspect changes to tests and evaluation code, and compare independent outcome evidence. A second LLM can share the first model's blind spots.
 
 ## Environment Design as the Root Solution
 

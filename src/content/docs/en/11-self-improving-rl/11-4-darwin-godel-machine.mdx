@@ -6,7 +6,7 @@ sidebar:
 learning_objectives:
   - "Explain the mechanism by which the Darwin Gödel Machine evolves the agent scaffold itself"
   - "Describe the loop structure that produced the improvement from 20% to 50% on SWE-bench"
-  - "Discuss the safety guarantees and realistic limits of a self-modification loop"
+  - "Distinguish empirical evaluation from safety controls in a self-modification loop"
 prerequisites:
   - "11-3-alphaevolve"
 estimated_minutes: 30
@@ -17,55 +17,42 @@ references:
   - title: "DeepMind — AlphaEvolve: A Gemini-powered coding agent for designing advanced algorithms"
     url: "https://deepmind.google/discover/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/"
     accessed: "2026-06-30"
+  - title: "Zhang et al.: Darwin Godel Machine, v3 (March 2026)"
+    url: "https://arxiv.org/html/2505.22954v3"
+    accessed: "2026-10-23"
 ---
 
 ## What Is Self-Modification?
 
-AlphaEvolve evolves algorithmic solutions. But what if we evolved not the algorithm, but the **agent's own code**? That is the question the **Darwin Gödel Machine (DGM)** asks.
+AlphaEvolve searches over algorithms. Darwin Gödel Machine (DGM) searches over the coding agent's own scaffold, the code that manages its tools and workflow. Its foundation model weights remain frozen in the reported experiments.
 
-The classical Gödel Machine concept posits an AI capable of rewriting its own source code. DGM (Zhang et al., 2025) realizes this idea practically: the agent iteratively modifies its own scaffold code on a coding benchmark (SWE-bench) and then verifies on that same benchmark whether performance improved. **Only modifications that pass verification are adopted.** This is the mechanism that ensures safety.
+The paper reports an increase from 20.0% to 50.0% on its evaluated SWE-bench Verified subset of 200 tasks. It also reports 14.2% to 30.7% on the full Polyglot benchmark. Keep the task subset and evaluation setup with these numbers. They are not a full 500-task Verified leaderboard result.
 
-The results are striking. **On SWE-bench Verified, the system improved from an initial 20.0% to 50.0% through an automated self-modification loop.**
+DGM uses empirical coding results rather than formal proofs that each change is beneficial. Benchmark success does not prove safety outside the evaluated tasks.
 
 ## The DGM Self-Modification Loop
 
+DGM keeps an archive of agent variants and their parent-child relationships. It samples a parent, asks that agent to modify its scaffold, and evaluates the new agent. A variant must compile and retain code-editing ability to enter the archive.
+
 ```text
-┌──────────────────────────────────────────────────────────────────┐
-│               Darwin Gödel Machine Self-Modification Loop        │
-└──────────────────────────────────────────────────────────────────┘
-
-  Start: initial agent scaffold code (v0)
-         │
-         ▼
-  ┌─────────────────────────────────┐
-  │  ① Measure current performance  │
-  │     Run k tasks on SWE-bench    │
-  │     Record pass rate            │
-  └──────────────┬──────────────────┘
-                 │
-                 ▼
-  ┌─────────────────────────────────┐
-  │  ② Propose scaffold edit        │
-  │     LLM analyzes current code   │
-  │     Identifies improvable areas │
-  │     → Generates new scaffold    │
-  └──────────────┬──────────────────┘
-                 │
-                 ▼
-  ┌─────────────────────────────────┐
-  │  ③ Re-benchmark modified agent  │
-  │     Re-run same SWE-bench tasks │
-  │     Measure new pass rate       │
-  └──────────────┬──────────────────┘
-                 │
-          Better?  ├── Yes ──▶ Adopt modification (vN → vN+1)
-                 │
-                 └── No  ──▶ Discard, try another mutation
-
-  (After sufficient iterations, select best version)
+Archive of agents and evaluation records
+          |
+          v
+Select a parent using performance and exploration criteria
+          |
+          v
+Parent proposes and implements a scaffold change
+          |
+          v
+Evaluate the candidate in a controlled environment
+          |
+          v
+Retain eligible variants and their lineage in the archive
+          |
+          +----> Sample another parent
 ```
 
-The key insight here is that **the benchmark plays the role of the verifier that closes the loop**. The agent cannot bias the benchmark in its own favor — the evaluation criterion (SWE-bench tasks) is fixed outside the agent.
+Archive admission does not require every variant to beat its parent. Lower-scoring variants can become stepping stones to later improvements. A loop that discards every non-improving candidate describes greedy hill climbing, not the paper's open-ended search.
 
 ## What Gets Modified: Levels of the Scaffold
 
@@ -99,13 +86,11 @@ Both use an evolutionary loop, but DGM **evolves a different target**.
 
 AlphaEvolve builds better tools (algorithms). DGM improves the **craftsman (agent) who uses the tools**.
 
-## Safety Guarantee: Never Adopt Without Verification
+## Safety Controls and Evaluation Limits
 
-The biggest concern with a self-modifying agent is safety. Will the agent spiral through endless self-rewrites, drift away from its goal, or degrade?
+Sandboxing, human oversight, and traceable changes constrain the experiment. They are separate from the coding score. DGM does not supply a general safety guarantee or permission for arbitrary self-modification.
 
-DGM's core safety mechanism is the **verify-before-adopt** principle. Every scaffold modification is adopted only when it demonstrably improves performance on the same benchmark. Mutations that fail verification are discarded. This plays exactly the role that fitness evaluation plays in AlphaEvolve.
-
-There are limits, of course. **Benchmark overfitting** is possible: the agent may specialize so narrowly on SWE-bench that performance on genuinely diverse coding tasks degrades. Scaffold modifications can also create unintended side effects — designing verification that fully rules these out remains an open problem.
+Keep evaluation code, credentials, and release permissions outside the mutable scaffold. Use held-out tasks and review changes that affect tool execution or policy. A higher benchmark score can conceal reward hacking, overfitting, or regressions outside the measured domain. Archive admission and production release require different gates.
 
 ## The Loop Engineer's Perspective
 

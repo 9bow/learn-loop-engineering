@@ -17,6 +17,9 @@ references:
   - title: "Wang et al. — Self-Consistency Improves Chain of Thought Reasoning (arXiv:2203.11171)"
     url: "https://arxiv.org/abs/2203.11171"
     accessed: "2026-06-30"
+  - title: "Anthropic: Demystifying evals for AI agents"
+    url: "https://www.anthropic.com/research/demystifying-evals-for-ai-agents"
+    accessed: "2026-10-23"
 ---
 
 ## 직렬 처리의 병목을 깨다
@@ -82,7 +85,9 @@ Sectioning의 전형적 사용 사례는 긴 문서 처리다. 100페이지 보�
 
 Voting은 3장 섹션에서 다룬 Self-Consistency와 근본적으로 같은 아이디어를 **워크플로 수준**에서 구현한 것이다. Self-Consistency는 단일 에이전트가 같은 문제를 여러 번 샘플링해 다수결을 취한다. Workflow Voting은 여러 독립 LLM 호출(또는 다른 온도 설정, 다른 시스템 프롬프트)을 병렬로 실행해 결과를 집계한다.
 
-Voting이 특히 효과적인 시나리오는 **분류 및 이진 결정**이다. 콘텐츠 안전성 판단, 승인/거부 결정, 품질 기준 충족 여부 같은 이진 출력에서 다수결은 단일 판단보다 일관적으로 신뢰할 수 있다.
+Voting이 특히 효과적인 시나리오는 **분류 및 이진 결정**이다. 콘텐츠 안전성 판단, 승인/거부 결정, 품질 기준 충족 여부 같은 이진 출력에서 후보가 충분히 정확하고 오류가 적게 겹치면 다수결로 신뢰성을 높일 수 있다.
+
+투표의 효과에는 유용한 후보 다양성이 필요하다. 반복 호출은 같은 잘못된 가정·출처·모델 편향을 공유할 수 있다. 다수결이 더 신뢰할 만하다고 가정하기 전에 상관된 실패를 측정한다. 병렬 작업에는 동시 실행 수 제한과 취소도 필요하다. 서비스 한도와 공유 상태가 실제 지연을 지배할 수 있기 때문이다.
 
 ## Python 구현 예시
 

@@ -17,6 +17,9 @@ references:
   - title: "Lilian Weng — LLM Powered Autonomous Agents"
     url: "https://lilianweng.github.io/posts/2023-06-23-agent/"
     accessed: "2026-06-30"
+  - title: "DeepSeek-AI: DeepSeek-R1 report, v2"
+    url: "https://arxiv.org/abs/2501.12948v2"
+    accessed: "2026-10-23"
 ---
 
 ## Improving Model Weights via a Loop
@@ -71,6 +74,10 @@ Late training   → spontaneous chain-of-thought (CoT)
 
 Nobody taught CoT. Nobody specified backtracking. **These strategies appeared on their own** as the model sought to maximize accuracy reward. This is what emergence through pure RL means.
 
+Distinguish the pretrained base model from post-training. R1-Zero applies RL without a preceding supervised fine-tuning stage. DeepSeek-R1 adds cold-start examples and several training stages. Calling R1 itself a model trained only through RL is incorrect.
+
+The reported reasoning behavior appears after pretraining. It does not show learning from no prior knowledge. GRPO also needs rewards and multiple sampled outputs, so removing the critic does not remove evaluation or sampling costs.
+
 ## Connecting the Training Loop and the Inference Loop
 
 Every loop discussed in this course so far has been an **inference loop** — running a trained model, calling tools, observing, repeating. GRPO and DeepSeek-R1 deal with the **training loop**. How do these two loops connect?
@@ -98,7 +105,7 @@ Inference loop (serving phase)
   └───────────────────────────────────────────────┘
 ```
 
-When the training loop produces a better policy `π*`, the inference loop executes that policy. The emergent CoT and backtracking in DeepSeek-R1-Zero produce **more accurate results in fewer outer-loop iterations** at inference time — because the model thinks more internally, it needs fewer external tool-call iterations.
+A better trained policy can change inference behavior, but the R1-Zero reasoning experiments do not prove fewer external tool calls. Measure tool-use success, retries, and total cost in the intended harness.
 
 ## Implications for Loop Engineers
 

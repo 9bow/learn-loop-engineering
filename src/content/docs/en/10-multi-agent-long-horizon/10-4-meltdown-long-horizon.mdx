@@ -67,7 +67,7 @@ Defense against meltdown operates at three layers.
 
 **Layer 1 — Context Compaction**
 
-When context reaches a threshold — for example, 80–90% of the context window — summarize the entire history and replace it with a fresh representation. Claude Code uses approximately 92% as this threshold. The summary retains completed task results, key discovered facts, and outstanding unresolved issues; it discards detailed process logs.
+When context reaches a threshold — for example, 80–90% of the context window — summarize the entire history and replace it with a fresh representation. Choose the threshold from the model limit, configuration, and space needed for the next tool result. The summary retains completed task results, key discovered facts, and outstanding unresolved issues; it discards detailed process logs.
 
 The critical point is that **the summary must be structured state extraction, not simple compression**.
 

@@ -154,5 +154,17 @@
     ],
     "answer": 3,
     "explanation": "Chapter 8-4 explains that the least-privilege principle means granting agents only the minimum permissions required to complete the task, minimizing blast radius in case of malfunction."
+  },
+  {
+    "id": "q14",
+    "question": "What does the cited inoculation prompting research change?",
+    "options": [
+      "Only the deployed refusal message",
+      "Selected training prompts, then evaluation without those instructions",
+      "The operating system permissions automatically",
+      "The benchmark answer key at runtime"
+    ],
+    "answer": 1,
+    "explanation": "The research studies a training intervention. A runtime prohibition is different and does not replace independent permission or evaluation controls."
   }
 ]

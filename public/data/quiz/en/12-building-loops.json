@@ -1,15 +1,15 @@
 [
   {
     "id": "q1",
-    "question": "At what percentage of the context window does Claude Code trigger Compaction?",
+    "question": "What does the Claude Code documentation say about compaction thresholds?",
     "options": [
-      "50%",
-      "70%",
-      "92%",
-      "99%"
+      "Every model always uses 50%",
+      "Compaction replaces all persistent instructions",
+      "The threshold depends on the model and configuration",
+      "Compaction proves that the task is complete"
     ],
     "answer": 2,
-    "explanation": "Chapter 12-1 states that Claude Code automatically triggers Compaction when 92% of the context window is reached — a higher threshold than the general recommendation of 70–80%."
+    "explanation": "The current guide documents model-dependent thresholds and configurable auto-compaction. A universal 92% threshold is unsupported."
   },
   {
     "id": "q2",

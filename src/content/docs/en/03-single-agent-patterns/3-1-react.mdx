@@ -13,7 +13,7 @@ estimated_minutes: 30
 references:
   - title: "Yao et al. — ReAct: Synergizing Reasoning and Acting in Language Models (arXiv:2210.03629)"
     url: "https://arxiv.org/abs/2210.03629"
-    accessed: "2026-06-30"
+    accessed: "2026-10-23"
   - title: "Anthropic — Building Effective AI Agents"
     url: "https://www.anthropic.com/research/building-effective-agents"
     accessed: "2026-06-30"
@@ -119,8 +119,8 @@ The ReAct paper demonstrated its strengths on two multi-step task benchmarks.
 
 | Benchmark | Baseline | ReAct Gain |
 |-----------|----------|-----------|
-| ALFWorld (household task agent) | RL baseline | **+34% absolute** |
-| WebShop (e-commerce navigation) | Action-only baseline | **+10% absolute** |
+| ALFWorld (household task agent) | learned baselines in the paper | **+34% absolute** |
+| WebShop (e-commerce navigation) | learned baselines in the paper | **+10% absolute** |
 
 The +34% on ALFWorld is particularly striking. That benchmark requires executing multi-step instructions such as "place the book on the desk into the bookshelf" inside a text-based virtual environment. The results show that interleaving reasoning and action is far more robust than cycling through actions without any Thought.
 

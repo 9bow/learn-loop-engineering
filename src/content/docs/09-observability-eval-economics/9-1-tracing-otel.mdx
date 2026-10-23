@@ -20,6 +20,12 @@ references:
   - title: "Anthropic — How we built our multi-agent research system"
     url: "https://www.anthropic.com/engineering/multi-agent-research-system"
     accessed: "2026-06-30"
+  - title: "OpenTelemetry: GenAI agent spans, Development"
+    url: "https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/gen-ai-agent-spans.md"
+    accessed: "2026-10-23"
+  - title: "OpenTelemetry: MCP conventions, Development"
+    url: "https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md"
+    accessed: "2026-10-23"
 ---
 
 ## 왜 에이전트 루프에는 특별한 트레이싱이 필요한가
@@ -27,6 +33,10 @@ references:
 일반적인 HTTP 요청은 단순하다. 요청 하나가 들어오고, 처리되고, 응답이 나간다. 시작과 끝이 명확하고, 지연(latency)은 하나의 숫자로 표현된다. 에이전트 루프는 다르다. 루프 한 번 실행은 수십 번의 모델 호출, 여러 도구 실행, 서브에이전트 위임으로 구성될 수 있다. 어떤 스텝이 느렸는지, 어느 도구 호출에서 에러가 발생했는지, 서브에이전트는 몇 번의 이터레이션을 거쳤는지 — 이 모든 것이 **분산 추적(distributed tracing)** 없이는 블랙박스가 된다.
 
 OpenTelemetry는 이 문제를 해결하기 위해 **gen_ai 시맨틱 컨벤션(semantic convention)**을 정의했다. 모델 공급자·프레임워크·도구 실행 레이어가 서로 다른 팀의 코드로 이뤄져 있더라도, 동일한 속성명을 사용하면 단일 추적(trace) 트리로 통합해 볼 수 있다.
+
+2026년 10월 23일 확인 기준 GenAI 컨벤션은 OpenTelemetry의 별도 `semantic-conventions-genai` 저장소로 이동했다. 에이전트 스팬은 아직 Development 상태다. 컨벤션과 계측 라이브러리 버전을 함께 고정하고, 안정화된 호환성 계약으로 설명하지 않는다.
+
+아래 트리는 가능한 애플리케이션 구조의 한 예이며 전체 스팬 유형 목록이 아니다. 프로세스 내부 에이전트에는 `INTERNAL`, 원격 호출에는 `CLIENT`를 사용한다. 모델 API에 따라 `chat` 또는 `generate_content` 같은 실제 동작을 기록한다.
 
 ## gen_ai 스팬 계층 구조
 
@@ -60,7 +70,7 @@ OpenTelemetry gen_ai 컨벤션은 에이전트 루프를 세 가지 스팬 유�
 
 | 속성 | 스팬 유형 | 예시 값 |
 |---|---|---|
-| `gen_ai.system` | 모두 | `"anthropic"`, `"openai"` |
+| `gen_ai.provider.name` | 모두 | `"anthropic"`, `"openai"` |
 | `gen_ai.operation.name` | 모두 | `"invoke_agent"`, `"chat"`, `"execute_tool"` |
 | `gen_ai.request.model` | chat | `"claude-sonnet-4-5"` |
 | `gen_ai.agent.name` | invoke_agent | `"research_agent"` |
@@ -90,7 +100,7 @@ def run_agent_loop(task: str, tools: list) -> str:
     with tracer.start_as_current_span(
         "invoke_agent",
         attributes={
-            "gen_ai.system": "anthropic",
+            "gen_ai.provider.name": "anthropic",
             "gen_ai.operation.name": "invoke_agent",
             "gen_ai.agent.name": "research_agent",
         }
@@ -135,7 +145,22 @@ def run_agent_loop(task: str, tools: list) -> str:
 
 ## MCP 서버 트레이싱
 
-MCP 서버는 에이전트 루프와 별도 프로세스나 서비스로 실행되는 경우가 많다. 에이전트가 MCP 도구를 호출할 때 `traceparent`를 함께 전달하면, MCP 서버 내부의 처리 스팬도 같은 추적 트리에 포함된다. MCP 명세는 이를 위한 전파 포인트를 제공하며, 이를 활용하면 "어느 MCP 도구가 전체 루프에서 가장 느렸는가"를 정확히 알 수 있다.
+HTTP `traceparent`는 HTTP 요청을 연결하지만 MCP 스트림 하나에는 여러 JSON-RPC 메시지가 들어갈 수 있다. Development 상태인 MCP 컨벤션은 요청별 `params._meta`에 추적 컨텍스트를 주입하고, 수신 측이 이를 원격 부모로 추출하는 방식을 제시한다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "search",
+    "arguments": {"query": "agent evaluation"},
+    "_meta": {"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}
+  }
+}
+```
+
+위 Python 코드는 HTTP 전파만 보여준다. MCP 어댑터에는 메시지 단위 주입·추출을 별도로 구현한다. trace ID는 접근 권한을 부여하지 않는다. 프롬프트·도구 인수·비밀·개인정보는 기본적으로 기록하지 않고, 보존 기간과 접근 정책을 정한 경우에만 콘텐츠 수집을 켠다.
 
 ## 트레이싱으로 얻을 수 있는 것
 

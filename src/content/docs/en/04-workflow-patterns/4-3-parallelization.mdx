@@ -17,6 +17,9 @@ references:
   - title: "Wang et al. — Self-Consistency Improves Chain of Thought Reasoning (arXiv:2203.11171)"
     url: "https://arxiv.org/abs/2203.11171"
     accessed: "2026-06-30"
+  - title: "Anthropic: Demystifying evals for AI agents"
+    url: "https://www.anthropic.com/research/demystifying-evals-for-ai-agents"
+    accessed: "2026-10-23"
 ---
 
 ## Breaking the Sequential Bottleneck
@@ -82,7 +85,9 @@ The canonical use case for Sectioning is processing long documents. Summarizing 
 
 Voting is fundamentally the same idea as Self-Consistency from chapter 3 — implemented at the **workflow level**. Self-Consistency has a single agent sample the same problem multiple times and vote internally. Workflow Voting runs multiple independent LLM calls (possibly with different temperature settings or different system prompts) in parallel and aggregates externally.
 
-Voting is especially effective for **classification and binary decisions**: content safety checks, approve/reject decisions, quality threshold assessments. For binary outputs, majority vote is consistently more reliable than a single call.
+Voting is especially effective for **classification and binary decisions**: content safety checks, approve/reject decisions, quality threshold assessments. For binary outputs, voting can help when individual predictions are useful and their errors are sufficiently diverse.
+
+Voting helps only when candidates provide useful diversity. Repeated calls can share the same wrong assumption, source, or model bias. Measure correlated failures before treating majority vote as more reliable. Parallel tasks also need bounded concurrency and cancellation, because service rate limits and shared state can dominate latency.
 
 ## Python Implementation
 

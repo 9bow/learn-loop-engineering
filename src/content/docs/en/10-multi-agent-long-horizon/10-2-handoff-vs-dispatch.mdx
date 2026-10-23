@@ -21,6 +21,12 @@ references:
     url: "https://a2a-protocol.org/latest/specification/"
   - title: "Agent Skills Specification"
     url: "https://agentskills.io/specification"
+  - title: "OpenAI Agents SDK: Handoffs"
+    url: "https://openai.github.io/openai-agents-python/handoffs/"
+    accessed: "2026-10-23"
+  - title: "OpenAI Agents SDK: Guardrails"
+    url: "https://openai.github.io/openai-agents-python/guardrails/"
+    accessed: "2026-10-23"
 ---
 
 ## Two Collaboration Models
@@ -55,13 +61,13 @@ The OpenAI Agents SDK elevates the handoff pattern to a first-class primitive. T
 
 **Handoff**: The mechanism by which one agent transfers control to another. It does not merely return a result — it **transfers the entire execution context**. The receiving agent inherits the previous agent's conversation history and continues from there.
 
-**Guardrail**: A layer that validates agent inputs and outputs. It operates in parallel with model execution and blocks harmful output or out-of-scope requests. Because Guardrails run deterministically outside the model, an LLM cannot reason its way around a safety constraint.
+**Guardrail**: Input and output evaluation around the run. A guardrail can use code or another model, so it is not inherently deterministic. Parallel input evaluation can finish after tool execution starts. Use blocking evaluation when actions must wait, and authorize sensitive tools separately. Input guardrails apply to the first agent, and output guardrails to the final answering agent.
 
 This is a conceptual pseudocode example; actual API signatures may differ.
 
 ```python
 # Conceptual example in OpenAI Agents SDK style
-from agents import Agent, Handoff, Runner
+from agents import Agent, Runner
 
 # Define specialized agents
 code_agent = Agent(
@@ -75,21 +81,23 @@ research_agent = Agent(
     instructions="Handle technical documentation search and analysis.",
     tools=[web_search, read_url],
     # hand off to CodeAgent when coding is required
-    handoffs=[Handoff(agent=code_agent)],
+    handoffs=[code_agent],
 )
 
 triage_agent = Agent(
     name="TriageAgent",
     instructions="Analyze user requests and route to the appropriate agent.",
     handoffs=[
-        Handoff(agent=research_agent),
-        Handoff(agent=code_agent),
+        research_agent,
+        code_agent,
     ],
 )
 
 # Execution: TriageAgent starts; handoffs occur as needed
-result = Runner.run(triage_agent, user_message)
+result = Runner.run_sync(triage_agent, user_message)
 ```
+
+Handoffs normally preserve conversation history, but supported history filters can restrict what the recipient sees. Server-managed history has different filtering limits. For strict data separation, start a separate run with selected input. Do not pass the original server conversation identifier into that run.
 
 ## When Handoff Fits Best
 

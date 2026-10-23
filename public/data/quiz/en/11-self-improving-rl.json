@@ -81,19 +81,19 @@
       "By deploying more parallel agents"
     ],
     "answer": 1,
-    "explanation": "Chapter 11-4 explains that DGM improved from 20% to 50% through a self-modification loop in which the agent iteratively rewrites its own scaffold code (ACI, context handling, error handling, task decomposition) and validates changes using SWE-bench."
+    "explanation": "DGM changes its scaffold with frozen foundation model weights. The reported 20% to 50% result uses a 200-task SWE-bench Verified subset, not the full 500-task set."
   },
   {
     "id": "q8",
-    "question": "What is the core safety mechanism in the DGM self-modification loop?",
+    "question": "What distinguishes DGM archive search from greedy hill climbing?",
     "options": [
-      "A human supervisor reviews all modifications",
-      "After modification, performance is validated against an externally fixed benchmark, and only improvements are adopted",
-      "The number of modifications is pre-limited",
-      "Specific files or modules are prohibited from being modified"
+      "It proves the safety of every change",
+      "It can retain lower-scoring variants that enable later progress",
+      "It changes foundation model weights each iteration",
+      "It removes benchmark evaluation"
     ],
     "answer": 1,
-    "explanation": "Chapter 11-4 explains that DGM's safety mechanism is an external verifier pattern: each modified scaffold is validated against a fixed external benchmark (SWE-bench) and only variants with improved performance are adopted."
+    "explanation": "Eligible variants retain compilation and code-editing ability. Archive admission is not a safety proof or a requirement to beat the parent."
   },
   {
     "id": "q9",
@@ -154,5 +154,17 @@
     ],
     "answer": 1,
     "explanation": "Chapter 11-1 explains that sparse rewards (only a success/failure signal at the end of the loop) make it impossible to know the contribution of intermediate actions, making learning difficult, and notes that intermediate checkpoints or denser intermediate reward design is needed."
+  },
+  {
+    "id": "q14",
+    "question": "What does GEPA use to propose prompt revisions?",
+    "options": [
+      "Only a random word list",
+      "Execution traces and textual metric feedback",
+      "A safety proof for every output",
+      "Automatic updates to foundation model weights"
+    ],
+    "answer": 1,
+    "explanation": "GEPA uses reflection to propose instruction changes. A separate metric evaluates candidates, and untouched test tasks measure the final result."
   }
 ]

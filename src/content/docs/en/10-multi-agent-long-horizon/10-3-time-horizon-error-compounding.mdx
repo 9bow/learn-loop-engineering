@@ -17,6 +17,9 @@ references:
   - title: "METR — Measuring AI ability to complete long tasks (arXiv:2503.14499)"
     url: "https://arxiv.org/abs/2503.14499"
     accessed: "2026-06-30"
+  - title: "METR: Task-Completion Time Horizons, updated September 8, 2026"
+    url: "https://metr.org/time-horizons/"
+    accessed: "2026-10-23"
 ---
 
 ## METR's Question: How Long a Task Can an AI Complete?
@@ -25,30 +28,23 @@ Most existing benchmarks for AI agent capability evaluate tasks that complete in
 
 The **measurement methodology** is straightforward. Task length is defined by how long a human expert takes to complete the same task. An AI agent is then given the identical task and checked for success on 50% or more of attempts. The "50% reliability completion length" is the core metric.
 
-## The Seven-Month Doubling Law
+## The Historical Seven-Month Fit
 
-METR's most striking finding is the growth rate of this capability. **The task length that AI can complete at 50% reliability is approximately doubling every seven months.** As of March 2025, Claude 3.7 Sonnet could complete approximately one-hour tasks at 50% reliability.
+METR's most striking finding is the growth rate of this capability. The March 2025 study fitted an approximate seven-month doubling trend for the 50% horizon in its historical data. As of March 2025, Claude 3.7 Sonnet could complete approximately one-hour tasks at 50% reliability.
 
 ```text
-┌──────────────────────────────────────────────────────────────────┐
-│    Task Length vs. AI Success Rate (March 2025, approximate)     │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Under 4 min  ██████████████████████████████████  ~100%         │
-│  15 min       ████████████████████████████         ~80%          │
-│  1 hour       ████████████████                     ~50%          │
-│  4 hours      ████                                 <10%          │
-│  1 day+       ▌                                    <5%           │
-│                                                                  │
-│  Based on approximate patterns from METR's March 2025 research   │
-└──────────────────────────────────────────────────────────────────┘
+Human expert task duration -> predicted agent success curve
+50% horizon -> duration where the fitted curve crosses 50%
+80% horizon -> duration where the fitted curve crosses 80%
 ```
 
-Tasks shorter than four minutes succeed at nearly 100%. Tasks exceeding four hours fall below 10%. To understand this sharp drop, you need to examine the **error compounding** mechanism.
+The seven-month estimate describes the March 2025 historical fit, not a law or a current ranking. METR's September 8, 2026 page uses the expanded Time Horizon 1.1 suite. It warns that estimates above 16 human hours are unreliable with that suite.
+
+A time horizon measures task difficulty using human expert completion time. It does not measure unattended agent runtime. Task selection, human baselines, the harness, and uncertainty intervals affect interpretation. Compare models with the same dataset and methodology.
 
 ## The Mathematics of Compounding: p^n
 
-Assume each step of an agent loop succeeds with probability p. The probability that n consecutive steps all succeed is p^n.
+Assume n independent steps, each with success probability p, and no recovery. If every step must succeed, overall success is p^n.
 
 ```text
 Step success rate p = 0.95 (95%):
@@ -66,7 +62,7 @@ Step success rate p = 0.99 (99%):
 
 The math is simple but the implication is striking. Even if individual step success rate is as high as 99%, overall success for loops of 100 or more steps drops substantially. If a four-hour task requires 200–300 steps, overall success probability can fall to single digits even at 99% per-step reliability.
 
-Note that "step" here is not just an agent iteration. Every individual reasoning decision, tool parameter choice, and file-navigation path decision within each iteration is an independent failure point.
+Note that "step" here is not just an agent iteration. Each decision can introduce an error, but those errors are not necessarily independent.
 
 ## Two Patterns of Error Compounding
 
@@ -78,7 +74,7 @@ Errors compound in two ways.
 
 ## Design Implications: Strategies to Reduce Error Compounding
 
-If error compounding is unavoidable mathematics, loop engineers have two options: raise individual step success rate (p), or reduce the number of steps required (n).
+The p^n example assumes independent steps, equal success probabilities, no recovery, and a need for every step to succeed. Real loops violate these assumptions. Use it as a teaching model, then measure task-level recovery and failure correlations.
 
 **Strategies to raise p**:
 - Break steps into the smallest, most explicit units possible. A single ambiguous large step has a lower success rate than several small, clear ones.
@@ -92,6 +88,6 @@ If error compounding is unavoidable mathematics, loop engineers have two options
 
 ## The Speed of Time Horizon Expansion
 
-If the seven-month doubling law continues, AI agents capable of reliably completing full-day tasks could emerge within two to three years. At that point loop engineering becomes even more critical: the longer the time horizon, the greater the impact of error compounding, and the ability to control it through engineering will determine whether a system succeeds.
+Do not extrapolate a 50% historical fit into a promise of reliable day-long work. Long tasks need recovery, bounded permissions, and outcome evaluation regardless of the model's measured horizon. Splitting work across agents also adds coordination steps. It does not automatically reduce the system's total failure risk.
 
-The next chapter examines what happens when error compounding reaches its extreme — the **meltdown** patterns that afflict long-horizon agent loops.
+The next chapter examines failure patterns in long-running loops.
